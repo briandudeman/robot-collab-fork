@@ -1,0 +1,2 @@
+export MS_ASSET_DIR=~/ros2_ws/maniskill-test/maniskill-env-testing/ManiSkill/assets
+export MS_SKIP_ASSET_DOWNLOAD_PROMPT=1
