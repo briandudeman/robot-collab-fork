@@ -80,8 +80,9 @@ class RocobenchTest(BaseEnv):
         return CameraConfig("render_camera", pose, 512, 512, 1, 0.01, 100)
 
     def _load_agent(self, options: dict):
+        print("Agents getting loaded with rocobenchtest")
         super()._load_agent(
-            options, [sapien.Pose(p=[0, -1, 0]), sapien.Pose(p=[0, 1, 0])]
+            options, [sapien.Pose(p=[1, -1, 0]), sapien.Pose(p=[0, 1, 0])]
         )
 
     def _load_scene(self, options: dict):
@@ -119,11 +120,13 @@ class RocobenchTest(BaseEnv):
             b = len(env_idx)
             self.table_scene.initialize(env_idx)
             # the table scene initializes two robots. the first one self.agents[0] is on the left and the second one is on the right
-
+            print("initializting")
+            self._load_agent()
             torch.zeros((b, 3))
             torch.rand((b, 2)) * 0.2 - 0.1
             cubeA_xyz = torch.zeros((b, 3))
             cubeA_xyz[:, 0] = torch.rand((b,)) * 0.1 - 0.05
+            cubeA_xyz[:, 0] = torch.tensor([1])
             cubeA_xyz[:, 1] = -0.15 - torch.rand((b,)) * 0.1 + 0.05
             cubeB_xyz = torch.zeros((b, 3))
             cubeB_xyz[:, 0] = torch.rand((b,)) * 0.1 - 0.05

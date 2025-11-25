@@ -1,3 +1,5 @@
+import inspect
+import os
 import gymnasium as gym
 import numpy as np
 import sapien
@@ -93,13 +95,18 @@ def main(args: Args):
         env_kwargs["robot_uids"] = tuple(args.robot_uids.split(","))
         if len(env_kwargs["robot_uids"]) == 1:
             env_kwargs["robot_uids"] = env_kwargs["robot_uids"][0]
-    env: BaseEnv = gym.make(
+    env: RocobenchTest = gym.make(
         args.env_id,
         **env_kwargs
     )
-
+    
+    print("reseting...")
+    print(type(env))
+    print(os.path.abspath(inspect.getfile(env.reset)))
     obs, _ = env.reset(seed=args.seed, options=dict(reconfigure=True))
+    print("reset, now rendering...")
     viewer = env.render()
+    print("rendered")
     if isinstance(viewer, sapien.utils.Viewer):
             viewer.paused = args.pause
     

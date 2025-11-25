@@ -390,6 +390,8 @@ class BaseEnv(gym.Env):
     def _default_sim_config(self):
         return SimConfig()
     def _load_agent(self, options: dict, initial_agent_poses: Optional[Union[sapien.Pose, Pose]] = None, build_separate: bool = False):
+        print("agents getting loaded with baseenv")
+        
         """
         loads the agent/controllable articulations into the environment. The default function provides a convenient way to setup the agent/robot by a robot_uid
         (stored in self.robot_uids) without requiring the user to have to write the robot building and controller code themselves. For more
@@ -852,6 +854,7 @@ class BaseEnv(gym.Env):
     # Reset
     # -------------------------------------------------------------------------- #
     def reset(self, seed: Union[None, int, list[int]] = None, options: Union[None, dict] = None):
+        print("base env reseting")
         """Reset the ManiSkill environment with given seed(s) and options. Typically seed is either None (for unseeded reset) or an int (seeded reset).
         For GPU parallelized environments you can also pass a list of seeds for each parallel environment to seed each one separately.
 
@@ -891,6 +894,7 @@ class BaseEnv(gym.Env):
         if options is None:
             options = dict()
         reconfigure = options.get("reconfigure", False)
+        print("reconfigure: ", reconfigure)
         reconfigure = reconfigure or (
             self._reconfig_counter == 0 and self.reconfiguration_freq != 0
         )
