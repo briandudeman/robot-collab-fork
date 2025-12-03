@@ -38,7 +38,7 @@ class Args:
     num_envs: Annotated[int, tyro.conf.arg(aliases=["-n"])] = 1
     """Number of environments to run."""
 
-    control_mode: Annotated[Optional[str], tyro.conf.arg(aliases=["-c"])] = None
+    control_mode: Annotated[Optional[str], tyro.conf.arg(aliases=["-c"])] = "pd_joint_pos"
     """Control mode"""
 
     render_mode: str = "rgb_array"
@@ -62,7 +62,6 @@ class Args:
 
 
 def main(args: Args):
-    print("env id: ", args.env_id)
     if args.render_mode == "none":
         args.render_mode = None
     np.set_printoptions(suppress=True, precision=3)
@@ -85,7 +84,7 @@ def main(args: Args):
         sensor_configs=dict(shader_pack=args.shader),
         human_render_camera_configs=dict(shader_pack=args.shader),
         viewer_camera_configs=dict(shader_pack=args.shader),
-        #num_envs=args.num_envs,
+        num_envs=args.num_envs,
         sim_backend=args.sim_backend,
         render_backend=args.render_backend,
         enable_shadow=True,
@@ -95,31 +94,15 @@ def main(args: Args):
         env_kwargs["robot_uids"] = tuple(args.robot_uids.split(","))
         if len(env_kwargs["robot_uids"]) == 1:
             env_kwargs["robot_uids"] = env_kwargs["robot_uids"][0]
-    env: RocobenchTest = gym.make(
+    env: BaseEnv = gym.make(
         args.env_id,
         **env_kwargs
     )
-    
-    print("reseting...")
-    print(type(env))
-    print(os.path.abspath(inspect.getfile(env.reset)))
-    obs, _ = env.reset(seed=args.seed, options=dict(reconfigure=True))
-    print("reset, now rendering...")
-    viewer = env.render()
-    print("rendered")
-    if isinstance(viewer, sapien.utils.Viewer):
-            viewer.paused = args.pause
-    
-    while True:
-        action = env.action_space.sample() if env.action_space is not None else None
-        obs, reward, terminated, truncated, info = env.step(action)
-        if args.render_mode == "human":
-            env.render()
-    '''record_dir = args.record_dir
+    record_dir = args.record_dir
     if record_dir:
         record_dir = record_dir.format(env_id=args.env_id)
         env = RecordEpisode(env, record_dir, info_on_video=False, save_trajectory=False, max_steps_per_video=gym_utils.find_max_episode_steps_value(env))
-
+        
     if verbose:
         print("Observation space", env.observation_space)
         print("Action space", env.action_space)
@@ -132,9 +115,11 @@ def main(args: Args):
             env.action_space.seed(args.seed[0])
     if args.render_mode == "human":
         viewer = env.render()
-        if isinstance(viewer, sapien.utils.Viewer):
-            viewer.paused = args.pause
+        #viewer.paused = True # pausing env just to model
+        #if isinstance(viewer, sapien.utils.Viewer):
+         #   viewer.paused = args.pause
         env.render()
+    
     while True:
         action = env.action_space.sample() if env.action_space is not None else None
         obs, reward, terminated, truncated, info = env.step(action)
@@ -152,8 +137,7 @@ def main(args: Args):
 
     if record_dir:
         print(f"Saving video to {record_dir}")
-    '''
-
+    
 
 if __name__ == "__main__":
     parsed_args = tyro.cli(Args)
