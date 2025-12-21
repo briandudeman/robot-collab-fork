@@ -115,7 +115,7 @@ def main(args: Args):
             env.action_space.seed(args.seed[0])
     if args.render_mode == "human":
         viewer = env.render()
-        #viewer.paused = True # pausing env just to model
+        viewer.paused = True # pausing env just to model
         #if isinstance(viewer, sapien.utils.Viewer):
          #   viewer.paused = args.pause
         env.render()
