@@ -15,5 +15,6 @@ from .poke_cube import PokeCubeEnv
 from .place_sphere import PlaceSphereEnv
 from .roll_ball import RollBallEnv
 from .push_t import PushTEnv
-from .pull_cube_tool import PullCubeToolEnv
 from .stack_pyramid import StackPyramidEnv
+from .rocobench_test import RocobenchTest
+from .pull_cube_tool import PullCubeToolEnv

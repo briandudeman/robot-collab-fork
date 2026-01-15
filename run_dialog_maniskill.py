@@ -12,6 +12,8 @@ from typing import List, Tuple, Dict, Union, Optional, Any
 from collections import defaultdict
 import matplotlib.pyplot as plt
 
+from ManiSkill.mani_skill.envs.tasks.tabletop import RocobenchTest
+
 from rocobench.envs import SortOneBlockTask, CabinetTask, MoveRopeTask, SweepTask, MakeSandwichTask, PackGroceryTask, MujocoSimEnv, SimRobot, visualize_voxel_scene
 from rocobench import PlannedPathPolicy, LLMPathPlan, MultiArmRRT
 from prompting import LLMResponseParser, FeedbackManager, DialogPrompter, SingleThreadPrompter, save_episode_html
@@ -32,7 +34,7 @@ TASK_NAME_MAP = {
 class LLMRunner:
     def __init__(
         self,
-        env: MujocoSimEnv,
+        env: RocobenchTest,
         robots: Dict[str, SimRobot],
         max_runner_steps: int = 50,
         video_format: str = "mp4",
@@ -59,7 +61,7 @@ class LLMRunner:
         llm_source: str = "gpt4",
         ):
         self.env = env
-        self.env.reset()
+        self.env.reset() # not migrated
         self.robots = robots
         self.robot_agent_names = list(robots.keys()) # ['Alice', etc.]
         self.data_dir = data_dir
@@ -88,18 +90,13 @@ class LLMRunner:
         self.response_keywords = ['NAME', 'ACTION']
         if llm_output_mode == "action_and_path":
             self.response_keywords.append('PATH')
-        self.planner = MultiArmRRT(
-            self.env.physics,
-            robots=robots,
-            graspable_object_names=self.env.get_graspable_objects(),
-            allowed_collision_pairs=self.env.get_allowed_collision_pairs(),
-        )
+        
         self.policy_kwargs = policy_kwargs
         self.video_format = video_format
         self.skip_display = skip_display
         self.split_parsed_plans = split_parsed_plans
         self.temperature = temperature
-        self.parser = LLMResponseParser(
+        self.parser = LLMResponseParser( # not migrated to maniskill
             self.env,
             llm_output_mode,
             self.env.robot_name_map,
@@ -109,7 +106,7 @@ class LLMRunner:
             use_preplace=self.env.use_preplace, # NOTE: should be custom defined in each task env
             split_parsed_plans=False, # self.split_parsed_plans,
         )
-        self.feedback_manager = FeedbackManager(
+        self.feedback_manager = FeedbackManager( # not migrated to maniskill
             env=self.env,
             planner=self.planner,
             llm_output_mode=self.llm_output_mode,
@@ -119,7 +116,7 @@ class LLMRunner:
         )
         if llm_comm_mode in ["plan", "chat"]:
             logging.warning(f'Using SingleThreadPrompter for {llm_comm_mode} mode')
-            self.prompter = SingleThreadPrompter(
+            self.prompter = SingleThreadPrompter( # not migrated to maniskill, but i don't think we need to focus on this, migrate DialogPrompter first
                 env=self.env,
                 parser=self.parser,
                 feedback_manager=self.feedback_manager,
@@ -134,7 +131,7 @@ class LLMRunner:
             )
 
         else:
-            self.prompter = DialogPrompter(
+            self.prompter = DialogPrompter( # not migrated to maniskill
                 env=self.env,
                 parser=self.parser,
                 feedback_manager=self.feedback_manager,
@@ -153,7 +150,7 @@ class LLMRunner:
 
     def display_plan(self, plan: LLMPathPlan, save_name = "vis_plan", save_dir = None):
         """ Display the plan in the open3d viewer """ 
-        env = deepcopy(self.env)
+        env = deepcopy(self.env) # all of this not migrated to maniskill, physics n such
         env.physics.data.qpos[:] = self.env.physics.data.qpos[:].copy()
         env.physics.forward()
         env.render_point_cloud = True
@@ -171,7 +168,7 @@ class LLMRunner:
 
     def one_run(self, run_id: int = 0, start_step: int = 0, skip_reset = False, prev_llm_plans = [], prev_response = None, prev_actions = None):
         """ uses planner """
-        self.env.seed(np_seed=run_id)
+        self.env.seed(np_seed=run_id) # not migrated to maniskill
         if not skip_reset:
             self.env.reset(reload=True) # NOTE: need to do this to reset the model.eq_active vals
         env = self.env
@@ -182,7 +179,7 @@ class LLMRunner:
 
         done = False
         reward = 0
-        obs = env.get_obs()
+        obs = env.get_obs() # not migrated to maniskill
         for step in range(start_step, start_step + self.max_runner_steps):
 
             step_dir = os.path.join(save_dir, f"step_{step}")
@@ -190,7 +187,7 @@ class LLMRunner:
             prompt_path = os.path.join(step_dir, "prompts")
             os.makedirs(prompt_path, exist_ok=self.overwrite)
 
-            sim_data = env.save_intermediate_state()
+            sim_data = env.save_intermediate_state() # not migrated to maniskill
             data_fname = f"{step_dir}/env_init.pkl"
             with open(data_fname, "wb") as f:
                 pickle.dump(sim_data, f)
@@ -235,7 +232,7 @@ class LLMRunner:
 
             for i, plan in enumerate(current_llm_plan):
                 print('tograsp:', plan.tograsp, 'inhand:', plan.inhand, plan.action_strs)
-                policy = PlannedPathPolicy(
+                policy = PlannedPathPolicy( # not migrated to maniskill
                     physics=env.physics,
                     robots=self.robots,
                     path_plan=plan,
@@ -250,11 +247,11 @@ class LLMRunner:
                     for sim_action in prev_actions:
                         # env.physics.model.eq_active[52:] = 0
                         # env.physics.forward() # DEBUG
-                        obs, reward, done, info = env.step(sim_action, verbose=False)
+                        obs, reward, done, info = env.step(sim_action, verbose=False) # not migrated to maniskill
                         num_sim_steps += 1
                 else:
                     # breakpoint()
-                    plan_success, reason = policy.plan(env)
+                    plan_success, reason = policy.plan(env) # not migrated to maniskill
                     logging.info(f"Stesp: {step} Plan success: {plan_success}, reason: {reason}")
                     if plan_success:
                         logging.info(f"Execute the plan for {len(policy.action_buffer)} steps")
@@ -269,13 +266,13 @@ class LLMRunner:
                             pickle.dump(policy.action_buffer, f)
 
                         while not policy.plan_exhausted:
-                            sim_action = policy.act(obs, env.physics)
+                            sim_action = policy.act(obs, env.physics) # not migrated to maniskill, includes policy
                             obs, reward, done, info = env.step(sim_action, verbose=False)
                             num_sim_steps += 1
 
                 if num_sim_steps > 0:
                     vid_name = f"{step_dir}/execute.mp4"
-                    env.export_render_to_video(vid_name, out_type=self.video_format,  fps=50)
+                    env.export_render_to_video(vid_name, out_type=self.video_format,  fps=50) # not migrated to maniskill
                     print(f'Plans all executed! Video sample saved to {vid_name}')
 
                 else:
@@ -285,10 +282,10 @@ class LLMRunner:
 
             if rewind_env:
                 print("Rewinding the environment to before the first plan was executed.")
-                env.load_saved_state(sim_data)
+                env.load_saved_state(sim_data) # not migrated to maniskill
 
             else:
-                sim_data = env.save_intermediate_state()
+                sim_data = env.save_intermediate_state() # not migrated to maniskill
 
             data_fname = f"{step_dir}/env_end.pkl"
             with open(data_fname, "wb") as f:
@@ -339,7 +336,7 @@ class LLMRunner:
             env_init_fname = os.path.join(latest_step, "env_init.pkl")
             with open(env_init_fname, "rb") as f:
                 saved_data = pickle.load(f)
-                self.env.load_saved_state(saved_data)
+                self.env.load_saved_state(saved_data) # not migrated to maniskill
 
             print(f"==== Loading back Run {args.load_run_id} ====")
             next_step = int(latest_step.split("/")[-1].split("_")[-1])
@@ -410,7 +407,8 @@ def main(args):
     elif args.control_freq == 5:
         render_freq = 3000
 
-    env = env_cl(
+    env = RocobenchTest()
+    env = env_cl( # not migrated to maniskill
         render_freq=render_freq,
         image_hw=(400,400),
         sim_forward_steps=300,
@@ -421,19 +419,19 @@ def main(args):
         render_cameras=["face_panda","face_ur5e","teaser",],
         one_obj_each=True,
     )
-    robots = env.get_sim_robots()
+    robots = env.get_sim_robots() # not migrated to maniskill
     if args.no_feedback:
         assert args.num_replans == 1, "no feedback mode requires num_replans=1 but longer -tsteps"
 
 
     # save args into a json file
     args_dict = vars(args)
-    args_dict["env"] = env.__class__.__name__
+    args_dict["env"] = env.__class__.__name__ # not migrated to maniskill
     timestamp = datetime.now().strftime("%Y%m_%H%M")
     fname = os.path.join(args.data_dir, args.run_name, f"args_{timestamp}.json")
     os.makedirs(os.path.dirname(fname), exist_ok=True)
     json.dump(args_dict, open(fname, "w"), indent=2)
-    runner = LLMRunner(
+    runner = LLMRunner( # not migrated to maniskill
         env=env,
         data_dir=args.data_dir,
         robots=robots,

@@ -267,6 +267,9 @@ class Kinematics:
                 max_iterations=100,
             )
             if success:
+                print("ik vector size: ", tf.size(common.to_tensor(
+                    [result[self.pmodel_controlled_joint_indices]], device=self.device
+                )))
                 return common.to_tensor(
                     [result[self.pmodel_controlled_joint_indices]], device=self.device
                 )

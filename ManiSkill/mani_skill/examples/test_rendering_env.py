@@ -9,7 +9,6 @@ from mani_skill.utils import gym_utils
 from mani_skill.utils.wrappers import RecordEpisode
 from mani_skill.envs.tasks.tabletop.rocobench_test import RocobenchTest
 
-
 import tyro
 from dataclasses import dataclass
 from typing import List, Optional, Annotated, Union
@@ -94,6 +93,8 @@ def main(args: Args):
         env_kwargs["robot_uids"] = tuple(args.robot_uids.split(","))
         if len(env_kwargs["robot_uids"]) == 1:
             env_kwargs["robot_uids"] = env_kwargs["robot_uids"][0]
+    
+
     env: BaseEnv = gym.make(
         args.env_id,
         **env_kwargs
@@ -115,11 +116,11 @@ def main(args: Args):
             env.action_space.seed(args.seed[0])
     if args.render_mode == "human":
         viewer = env.render()
-        #viewer.paused = True # pausing env just to model
+        viewer.paused = True # pausing env just to model
         #if isinstance(viewer, sapien.utils.Viewer):
          #   viewer.paused = args.pause
         env.render()
-    
+    '''
     while True:
         action = env.action_space.sample() if env.action_space is not None else None
         obs, reward, terminated, truncated, info = env.step(action)
@@ -134,6 +135,8 @@ def main(args: Args):
             if (terminated | truncated).any():
                 break
     env.close()
+
+    '''
 
     if record_dir:
         print(f"Saving video to {record_dir}")
