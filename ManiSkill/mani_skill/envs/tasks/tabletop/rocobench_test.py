@@ -1,6 +1,7 @@
 from typing import Any, Tuple
 
 import numpy as np
+import gymnasium as gym
 import sapien
 import torch
 from transforms3d.euler import euler2quat
@@ -13,12 +14,28 @@ from mani_skill.sensors.camera import CameraConfig
 from mani_skill.utils import common, sapien_utils
 from mani_skill.utils.building import actors
 from mani_skill.utils.registration import register_env
-from mani_skill.utils.scene_builder.table_rocobench import RocoTableSceneBuilder
+from mani_skill.utils.scene_builder.table_rocobench.scene_builder import RocoTableSceneBuilder
 from mani_skill.utils.structs.pose import Pose
 from mani_skill.utils.structs.types import GPUMemoryConfig, SimConfig
 
 
-@register_env("rocobench_test", max_episode_steps=100)
+ACTION_SPACE="""
+[Action Options]
+1) PICK <obj> PATH <path>: only PICK if your gripper is empty;
+2) PLACE <obj> PATH <path>: only if you have already PICKed the object, you can PLACE it, do NOT PLACE if another object is already in the position this object is going to be PLACEd in!
+
+Each <path> must contain exactly four <coord>s that smoothly interpolate between start and goal, coordinates must be evenly distanced from each other.
+The robot PATHs must efficiently reach target while avoiding collision avoid collision (e.g. move above the objects' heights).
+The PATHs must do top-down pick or place: 
+- move directly atop an object by height 0.2 before PICK: e.g. agentA's gripper is at (0, 0, 0.3), cubeB is at (-0.25, 0.39, 0.29): NAME agentA ACTION PICK cubeB PATH [(0, 0.1, 0.3),(0, 0.2, 0.49),(-0.1, 0.25, 0.49),(-0.25, 0.39, 0.49)]
+- lift an object vertically up before moving it to PLACE: e.g. agentB's gripper is at (0.9, 0, 0.2), end_pos is at (0.35, 0.35, 0.43): NAME agentB ACTION PLACE cubeA end_pos PATH [(0.9,0.0,0.5), (0.5, 0, 0.5), (0.2, 0.1, 0.5),(0.35, 0.35, 0.5)]
+
+[Action Output Instruction]
+First output 'EXECUTE\n', then give exactly one ACTION per robot, each on a new line.
+Example: 'EXECUTE\nNAME agentA ACTION PICK cubeA PATH <path>\nNAME agentB ACTION PLACE cubeB end_pos PATH <path>\n'
+"""
+
+@register_env("RocobenchTest", max_episode_steps=100)
 class RocobenchTest(BaseEnv):
     """
     **Task Description:**
@@ -54,6 +71,7 @@ class RocobenchTest(BaseEnv):
         robot_init_qpos_noise=0.02,
         **kwargs
     ):
+        print("rocobench test being initialized")
         self.robot_init_qpos_noise = robot_init_qpos_noise
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
@@ -79,6 +97,62 @@ class RocobenchTest(BaseEnv):
         # pose = sapien_utils.look_at([1.4, 0.8, 0.75], [0.0, 0.1, 0.1]) # this perspective is good for demos
         pose = sapien_utils.look_at(eye=[0, 1.5, 1.5], target=[0, 0, 0])
         return CameraConfig("render_camera", pose, 512, 512, 1, 0.01, 100)
+
+    def get_action_prompt(self) -> str:
+        return ACTION_SPACE
+
+    def get_agent_prompt(self, agent_name, include_response_instructions=True):
+        
+        closest_cube = "cubeA"
+        other_cube = "cubeB"
+
+        closest_cube = "cubeA"
+        other_cube = "cubeB"
+
+        other_agent = "agentA"
+        if (agent_name == "agentA"):
+            other_agent = "agentB"
+            closest_cube = "cubeB"
+            other_cube = "cubeA"
+
+
+        agent_prompt = f"""
+        `There are 2 cubes and 2 targets on the table. Each cube is close to the other cube's respective target, and each group of target-cube is infront of a robot arm.
+        You are robot {agent_name} and on the other side of the table is {other_agent}, who you are collaborating with to sort both cubes into their respective targets. The task is NOT done until all two cubes are sorted.
+        At current round: 
+        {cube_states}
+        Your goal is to place {other_cube} on {bin_name}, but you can only reach {reachable_panels}: this means you can only pick cubes from these panels, and can only place cubes on these panels.
+        {agent_state}
+        Never forget you are {agent_name}! Never forget you can only reach {reachable_panels}!
+        Think step-by-step about the task and others' response. Carefully check and correct them if they made a mistake. 
+        Improve your plans if given [Environment Feedback].
+        """
+        if include_response_instructions:
+            agent_prompt += f"""
+        When you respond, tell others about your goal and all constraints. Respond very concisely but informatively, and do not repeat what others have said.
+        Discuss with others to come up with the best plan, e.g. if your cube is out of your reach, ask others for help, and you can do the same for them. 
+        Propose exactly one action for yourself at the **current** round, select from [Action Options].
+        End your response by either: 1) output PROCEED, if the plans require further discussion, or 2) If everyone has made proposals and got approved, output EXECUTE and the final plan, must strictly follow [Action Output Instruction]!
+        In the plan, at least one robot should be acting, you can't all WAIT.
+        """
+        # Example response #1:
+        # [Reasons] I am {agent_name}, I must put blue_square on panel2, but I can't reach blue_square for now. Since Chad needs yellow_trapezoid, I propose to help Chad move it closer. What does everyone think?
+        # [Proposal] PICK yellow_trapezoid PLACE panel3
+        # [Decision] PROCEED
+        # Example response #2:
+        # [Reasons] I am Chad, My previous proposal was approved and no need for update. I approve the latest proposals from Alice and Bob.
+        # [Proposal] WAIT 
+        # [Decision] 
+        # EXECUTE\nNAME Alice ACTION WAIT\nNAME Bob ACTION PICK blue_square PLACE panel3\nNAME Chad WAIT
+                
+        # if agent_name == "Alice":
+        #     agent_prompt += f"You must put blue_square in panel2" #you can only reach panel2, panel1, panel3. But you can't reach panel5, panel7, or other bins."
+        # elif agent_name == "Bob":
+        #     agent_prompt += "You must put pink_polygon in panel4" # you can only reach panel4, panel3, panel5. But you can't reach panel1, panel7, or other bins."
+        # elif agent_name == "Chad":
+        #     agent_prompt += "You must put yellow_trapezoid in panel6" #you can only reach panel6, panel5, panel7. But you can't reach panel1, panel3, or other bins."
+ 
+        return agent_prompt
 
     def _load_agent(self, options: dict):
         #print("Agents getting loaded with rocobenchtest")
@@ -186,11 +260,11 @@ class RocobenchTest(BaseEnv):
 
     # the robot that is next to goal region b, formerly left_agent
     @property
-    def agent_b(self) -> Panda:
+    def agentB(self) -> Panda:
         return self.agent.agents[0]
 
     @property
-    def agent_a(self) -> Panda:
+    def agentA(self) -> Panda:
         return self.agent.agents[1]
 
     def evaluate(self):
@@ -204,10 +278,10 @@ class RocobenchTest(BaseEnv):
         )
         cubeB_in_goal = cubeB_to_goalB_dist < self.goal_radius
         cubeA_in_goal = cubeA_to_goalA_dist < self.goal_radius
-        is_agentB_grasping_cubeA = self.agent_b.is_grasping(self.cubeA)
-        is_agentB_grasping_cubeB = self.agent_b.is_grasping(self.cubeB)
-        is_agentA_grasping_cubeA = self.agent_a.is_grasping(self.cubeA)
-        is_agentA_grasping_cubeB = self.agent_a.is_grasping(self.cubeB)
+        is_agentB_grasping_cubeA = self.agentB.is_grasping(self.cubeA)
+        is_agentB_grasping_cubeB = self.agentB.is_grasping(self.cubeB)
+        is_agentA_grasping_cubeA = self.agentA.is_grasping(self.cubeA)
+        is_agentA_grasping_cubeB = self.agentA.is_grasping(self.cubeB)
         success = (
             cubeB_in_goal * cubeA_in_goal
         )
@@ -225,8 +299,8 @@ class RocobenchTest(BaseEnv):
 
     def _get_obs_extra(self, info: dict):
         obs = dict(
-            arm_b_tcp=self.agent_b.tcp.pose.raw_pose,
-            arm_a_tcp=self.agent_a.tcp.pose.raw_pose,
+            arm_b_tcp=self.agentB.tcp.pose.raw_pose,
+            arm_a_tcp=self.agentA.tcp.pose.raw_pose,
         )
         if "state" in self.obs_mode:
             obs.update(
@@ -234,9 +308,9 @@ class RocobenchTest(BaseEnv):
                 cubeA_pose=self.cubeA.pose.raw_pose,
                 cubeB_pose=self.cubeB.pose.raw_pose,
                 arm_b_tcp_to_cubeA_pos=self.cubeA.pose.p
-                - self.agent_b.tcp.pose.p,
+                - self.agentB.tcp.pose.p,
                 arm_a_tcp_to_cubeB_pos=self.cubeB.pose.p
-                - self.agent_a.tcp.pose.p
+                - self.agentA.tcp.pose.p
             )
         return obs
 
@@ -245,11 +319,11 @@ class RocobenchTest(BaseEnv):
         # Stage 1: opposite agents reach and grasp
         # reward for the opposite robot reaching for its opposite cube
         cubeA_to_arm_b_tcp_dist = torch.linalg.norm(
-            self.agent_b.tcp.pose.p - self.cubeA.pose.p, axis=1
+            self.agentB.tcp.pose.p - self.cubeA.pose.p, axis=1
         )
 
         cubeB_to_arm_a_tcp_dist = torch.linalg.norm(
-            self.agent_a.tcp.pose.p - self.cubeB.pose.p, axis=1
+            self.agentA.tcp.pose.p - self.cubeB.pose.p, axis=1
         )
 
         reach_reward = (
@@ -269,11 +343,11 @@ class RocobenchTest(BaseEnv):
 
         # Stage 2: Place cubes in spot where they can be grabbed by their respective robot
         cubeB_to_arm_b_tcp_dist = torch.linalg.norm(
-            self.agent_b.tcp.pose.p - self.cubeB.pose.p, axis=1
+            self.agentB.tcp.pose.p - self.cubeB.pose.p, axis=1
         )
 
         cubeA_to_arm_a_tcp_dist = torch.linalg.norm(
-            self.agent_a.tcp.pose.p - self.cubeA.pose.p, axis=1
+            self.agentA.tcp.pose.p - self.cubeA.pose.p, axis=1
         )
         
         reach_stage_2_reward = (
@@ -319,15 +393,15 @@ class RocobenchTest(BaseEnv):
         
         
         # Stage 4: get both robots to stop grasping
-        gripper_width = (self.agent_b.robot.get_qlimits()[0, -1, 1] * 2).to(
+        gripper_width = (self.agentB.robot.get_qlimits()[0, -1, 1] * 2).to(
             self.device
         )  # NOTE: hard-coded with panda
         ungrasp_reward_b = (
-            torch.sum(self.agent_b.robot.get_qpos()[:, -2:], axis=1) / gripper_width
+            torch.sum(self.agentB.robot.get_qpos()[:, -2:], axis=1) / gripper_width
         )
         ungrasp_reward_b[~info["is_cubeB_grasped"]] = 1.0
         ungrasp_reward_a = (
-            torch.sum(self.agent_a.robot.get_qpos()[:, -2:], axis=1) / gripper_width
+            torch.sum(self.agentA.robot.get_qpos()[:, -2:], axis=1) / gripper_width
         )
         ungrasp_reward_a[~info["is_cubeA_grasped"]] = 1.0
 
@@ -343,3 +417,7 @@ class RocobenchTest(BaseEnv):
         self, obs: Any, action: torch.Tensor, info: dict
     ):
         return self.compute_dense_reward(obs=obs, action=action, info=info) / 10
+
+
+if __name__ == "__main__":
+    gym.pprint_registry()

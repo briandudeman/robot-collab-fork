@@ -13,6 +13,7 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 
 from ManiSkill.mani_skill.envs.tasks.tabletop import RocobenchTest
+
 from rocobench.envs import SortOneBlockTask, CabinetTask, MoveRopeTask, SweepTask, MakeSandwichTask, PackGroceryTask, MujocoSimEnv, SimRobot, visualize_voxel_scene
 from rocobench import PlannedPathPolicy, LLMPathPlan, MultiArmRRT
 from prompting import LLMResponseParser, FeedbackManager, DialogPrompter, SingleThreadPrompter, save_episode_html
@@ -89,12 +90,7 @@ class LLMRunner:
         self.response_keywords = ['NAME', 'ACTION']
         if llm_output_mode == "action_and_path":
             self.response_keywords.append('PATH')
-        self.planner = MultiArmRRT( # not migrated to maniskill
-            self.env.physics,
-            robots=robots,
-            graspable_object_names=self.env.get_graspable_objects(),
-            allowed_collision_pairs=self.env.get_allowed_collision_pairs(),
-        )
+        
         self.policy_kwargs = policy_kwargs
         self.video_format = video_format
         self.skip_display = skip_display
@@ -120,7 +116,7 @@ class LLMRunner:
         )
         if llm_comm_mode in ["plan", "chat"]:
             logging.warning(f'Using SingleThreadPrompter for {llm_comm_mode} mode')
-            self.prompter = SingleThreadPrompter( # not migrated to maniskill
+            self.prompter = SingleThreadPrompter( # not migrated to maniskill, but i don't think we need to focus on this, migrate DialogPrompter first
                 env=self.env,
                 parser=self.parser,
                 feedback_manager=self.feedback_manager,

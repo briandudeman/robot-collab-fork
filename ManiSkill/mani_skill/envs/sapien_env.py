@@ -209,7 +209,6 @@ class BaseEnv(gym.Env):
         parallel_in_single_scene: bool = False,
         enhanced_determinism: bool = False,
     ):
-        print(num_envs)
         self._enhanced_determinism = enhanced_determinism
 
         self.num_envs = num_envs

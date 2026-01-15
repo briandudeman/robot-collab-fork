@@ -26,7 +26,7 @@ class ManiskillMultiArmRRT:
         self.np_random = np.random.RandomState(seed)
 
 
-    def forward_kinematics_all(): # actually moves the robots i think
+    def forward_kinematics_all(): # duplicates the physics and simulates the robots movements in this seperate simulation
         pass 
 
     # robot is the robot you want to solve ik for, uid
@@ -45,7 +45,7 @@ class ManiskillMultiArmRRT:
                 raise ValueError("IK solution not found")
 
             return target_qpos
-            # checking for collisions between arms
+            # checking for collisions between arms (needs to be implemented)
         
         else:
             print("robot_uid is not in list of robots, please check and rewrite")
@@ -58,8 +58,11 @@ class ManiskillMultiArmRRT:
         solved_iks = {}
         for robot_uid, robot_pose in ee_poses:
             solved_iks[robot_uid] = self.solve_ik(robot_uid, robot_pose.get_p(), robot_pose.get_q())
+        
+        return solved_iks
 
 
+    # computes the total distance between all robots end effector poses
     def ee_l2_distance(self, 
         q1: np.ndarray, 
         q2: np.ndarray, 
