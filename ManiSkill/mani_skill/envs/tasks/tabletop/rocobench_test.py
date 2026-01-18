@@ -101,19 +101,23 @@ class RocobenchTest(BaseEnv):
     def get_action_prompt(self) -> str:
         return ACTION_SPACE
 
-    def get_agent_prompt(self, agent_name, include_response_instructions=True):
+    def get_agent_prompt(self, obs, agent_name, include_response_instructions=True):
         
         closest_cube = "cubeA"
         other_cube = "cubeB"
 
-        closest_cube = "cubeA"
-        other_cube = "cubeB"
+        closest_target = "targetA"
+        other_target = "targetB"
 
         other_agent = "agentA"
         if (agent_name == "agentA"):
             other_agent = "agentB"
+
             closest_cube = "cubeB"
             other_cube = "cubeA"
+            
+            closest_target = "targetB"
+            other_target = "targetA"
 
 
         agent_prompt = f"""
@@ -121,9 +125,9 @@ class RocobenchTest(BaseEnv):
         You are robot {agent_name} and on the other side of the table is {other_agent}, who you are collaborating with to sort both cubes into their respective targets. The task is NOT done until all two cubes are sorted.
         At current round: 
         {cube_states}
-        Your goal is to place {other_cube} on {bin_name}, but you can only reach {reachable_panels}: this means you can only pick cubes from these panels, and can only place cubes on these panels.
+        Your goal is to place {other_cube} on {closest_target}, but you can only reach {closest_cube}.
         {agent_state}
-        Never forget you are {agent_name}! Never forget you can only reach {reachable_panels}!
+        Never forget you are {agent_name}! Never forget you can only reach {closest_cube}!
         Think step-by-step about the task and others' response. Carefully check and correct them if they made a mistake. 
         Improve your plans if given [Environment Feedback].
         """
@@ -304,7 +308,8 @@ class RocobenchTest(BaseEnv):
         )
         if "state" in self.obs_mode:
             obs.update(
-                goal_region_pos=[self.goal_region[0].pose.p, self.goal_region[1].pose.p],
+                cubeA_goal_region_pos=self.goal_region[0].pose.p,
+                cubeB_goal_region_pos=self.goal_region[1].pose.p,
                 cubeA_pose=self.cubeA.pose.raw_pose,
                 cubeB_pose=self.cubeB.pose.raw_pose,
                 arm_b_tcp_to_cubeA_pos=self.cubeA.pose.p

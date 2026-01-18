@@ -183,6 +183,7 @@ class LLMRunner:
         done = False
         reward = 0
         obs = env.get_obs()
+        print("obs: ", obs)
         for step in range(start_step, start_step + self.max_runner_steps):
 
             step_dir = os.path.join(save_dir, f"step_{step}")
