@@ -99,8 +99,13 @@ def main(args: Args):
         args.env_id,
         **env_kwargs
     )
+    
+    
+    #print("obs: ", env.get_obs())
 
-    print("obs: ", env.get_obs())
+    #print("get_agent_prompt: ", env.get_agent_prompt(env.get_obs(), "agentA"))
+
+
     record_dir = args.record_dir
     if record_dir:
         record_dir = record_dir.format(env_id=args.env_id)

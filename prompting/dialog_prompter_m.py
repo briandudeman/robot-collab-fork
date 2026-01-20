@@ -75,8 +75,8 @@ class DialogPrompter:
         #assert llm_source in ["gpt-4", "gpt-3.5-turbo", "claude"], f"llm_source must be one of [gpt4, gpt-3.5-turbo, claude], got {llm_source}"
 
     def compose_system_prompt(
-        self, 
-        obs: EnvState, 
+        self,
+        obs,
         agent_name: str,
         chat_history: List = [], # chat from previous replan rounds
         current_chat: List = [],  # chat from current round, this comes AFTER env feedback 
