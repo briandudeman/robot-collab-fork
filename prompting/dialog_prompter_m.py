@@ -74,18 +74,18 @@ class DialogPrompter:
         self.llm_source = llm_source
         #assert llm_source in ["gpt-4", "gpt-3.5-turbo", "claude"], f"llm_source must be one of [gpt4, gpt-3.5-turbo, claude], got {llm_source}"
 
-    def compose_system_prompt(
-        self, 
-        obs: EnvState, 
+    def compose_system_prompt( # first pass migrated
+        self,
+        obs: dict,
         agent_name: str,
         chat_history: List = [], # chat from previous replan rounds
         current_chat: List = [],  # chat from current round, this comes AFTER env feedback 
         feedback_history: List = []
     ) -> str:
-        action_desp = self.env.get_action_prompt()
+        action_desp = self.env.get_action_prompt() # migrated
         if self.use_waypoints:
             action_desp += PATH_PLAN_INSTRUCTION
-        agent_prompt = self.env.get_agent_prompt(obs, agent_name)
+        agent_prompt = self.env.get_agent_prompt(obs, agent_name) # migrated, TODO: make it better
         
         round_history = self.get_round_history() if self.use_history else ""
 
@@ -106,7 +106,7 @@ class DialogPrompter:
 
         return system_prompt 
 
-    def get_round_history(self):
+    def get_round_history(self): # don't have to migrate
         if len(self.round_history) == 0:
             return ""
         ret = "[History]\n"
@@ -115,7 +115,7 @@ class DialogPrompter:
         ret += f"== Current Round ==\n"
         return ret
     
-    def prompt_one_round(self, obs: EnvState, save_path: str = ""): 
+    def prompt_one_round(self, obs: dict, save_path: str = ""): # migrated except for parser, feedbackmanager, and llmpathplan.get_action_desp()
         plan_feedbacks = []
         chat_history = [] 
         for i in range(self.num_replans):
@@ -165,11 +165,11 @@ This previous response from [{final_agent}] failed to parse!: '{final_response}'
         self.latest_chat_history = chat_history
         return ready_to_execute, llm_plans, plan_feedbacks, chat_history
    
-    def prompt_one_dialog_round(
+    def prompt_one_dialog_round(# looks fine, dont have to migrate for now
         self, 
-        obs, 
-        chat_history, 
-        feedback_history, 
+        obs: dict, 
+        chat_history: list, 
+        feedback_history: list, 
         replan_idx=0,
         save_path='data/',
         ):
@@ -249,7 +249,7 @@ Your response is:
         # print(response)  
         return agent_name, response, agent_responses
 
-    def query_once(self, system_prompt, user_prompt, max_query):
+    def query_once(self, system_prompt, user_prompt, max_query): # shouldn't need environment migration
         response = None
         usage = None   
         # print('======= system prompt ======= \n ', system_prompt)
@@ -285,7 +285,7 @@ Your response is:
         # breakpoint()
         return response, usage
     
-    def post_execute_update(self, obs_desp: str, execute_success: bool, parsed_plan: str):
+    def post_execute_update(self, obs_desp: str, execute_success: bool, parsed_plan: str): # looks fine, don't need to migrate
         if execute_success: 
             # clear failed plans, count the previous execute as full past round in history
             self.failed_plans = []
@@ -297,9 +297,8 @@ Your response is:
             self.failed_plans.append(
                 parsed_plan
             )
-        return 
 
-    def post_episode_update(self):
+    def post_episode_update(self): # looks fine, don't need to migrate
         # clear for next episode
         self.round_history = []
         self.failed_plans = [] 

@@ -101,29 +101,86 @@ class RocobenchTest(BaseEnv):
     def get_action_prompt(self) -> str:
         return ACTION_SPACE
 
-    def get_agent_prompt(self, agent_name, include_response_instructions=True):
+    # only works for this specific environment frank emika panda robots, super icky but whatever
+    def cube_in_range(self, obs, agent:str, cube:str):
+        if (agent == "agentA"):
+            print(self.agentA.robot.pose.get_p())
+            if (torch.cdist(obs["extra"][f"{cube}_pose"][0:1, 0:3], self.agentA.robot.pose.get_p()) < .82):
+                return True
+            return False
+        elif (agent == "agentB"):
+            if (torch.cdist(obs["extra"][f"{cube}_pose"][0:1, 0:3], self.agentB.robot.pose.get_p()) < .82):
+                return True
+            return False
+
+
+    def describe_cube_states(self, obs):
+        return f"""(Is agentA grasping cubeA: {obs["extra"]["is_agentA_grasping_cubeA"][0]})
+                    (Is agentA grasping cubeB: {obs["extra"]["is_agentA_grasping_cubeB"][0]})
+                    (Is agentB grasping cubeA: {obs["extra"]["is_agentB_grasping_cubeA"][0]})
+                    (Is agentB grasping cubeB: {obs["extra"]["is_agentB_grasping_cubeB"][0]})
+                    (Is cubeA grasped: {obs["extra"]["is_cubeA_grasped"][0]})
+                    (Is cubeB grasped: {obs["extra"]["is_cubeB_grasped"][0]})
+                    (Is cubeB in goal: {obs["extra"]["cubeB_in_goal"][0]})
+                    (Is cubeA in goal: {obs["extra"]["cubeA_in_goal"][0]})
+                        """
+
+    def get_agent_prompt(self, obs, agent_name:str, include_response_instructions=True):
         
-        closest_cube = "cubeA"
-        other_cube = "cubeB"
+        agent_property = getattr(self, agent_name)
+
+        target_locations = 'cubeB_goal_region_pos: (' + ", ".join([str(i) for i in obs['extra']['cubeB_goal_region_pos'].tolist()[0]]) + '), cubeA_goal_region_pos: (' + ", ".join([str(i) for i in obs['extra']['cubeB_goal_region_pos'].tolist()[0]]) + ")"
+
+        cube_states = self.describe_cube_states(obs)
+
+        graspable_list = []
+
+        if (self.cube_in_range(obs, agent_name, "cubeA")):
+            graspable_list.append("cubeA")
+        
+        if (self.cube_in_range(obs, agent_name, "cubeB")):
+            graspable_list.append("cubeB")
+
+        graspables = ", ".join(graspable_list)
+
+        in_hand = ""
+        if (obs["extra"][f"is_{agent_name}_grasping_cubeA"][0]):
+            in_hand = ", grasping cubeA"
+        elif ((obs["extra"][f"is_{agent_name}_grasping_cubeB"][0])):
+            in_hand = ", grasping cubeB"
+        else:
+            in_hand = ", grasping nothing"
+             
+
+        agent_state = f'Your gripper: {(agent_property.robot.links_map["panda_hand_tcp"].pose.raw_pose)[:, 0:3].tolist()[0]}' + in_hand
 
         closest_cube = "cubeA"
         other_cube = "cubeB"
+
+        closest_target = "targetB"
+        other_target = "targetA"
 
         other_agent = "agentA"
         if (agent_name == "agentA"):
             other_agent = "agentB"
+
             closest_cube = "cubeB"
             other_cube = "cubeA"
+            
+            closest_target = "targetA"
+            other_target = "targetB"
 
 
         agent_prompt = f"""
         `There are 2 cubes and 2 targets on the table. Each cube is close to the other cube's respective target, and each group of target-cube is infront of a robot arm.
-        You are robot {agent_name} and on the other side of the table is {other_agent}, who you are collaborating with to sort both cubes into their respective targets. The task is NOT done until all two cubes are sorted.
+        You are robot {agent_name} and on the other side of the table is {other_agent}, who you are collaborating with to move both cubes to their respective targets. The task is NOT done until all two cubes are sorted.
+        Locations of the targets:
+        {target_locations}
         At current round: 
         {cube_states}
-        Your goal is to place {other_cube} on {bin_name}, but you can only reach {reachable_panels}: this means you can only pick cubes from these panels, and can only place cubes on these panels.
+        Your goal is to place {other_cube} on {closest_target}, but the only cube(s) in distance are/is {graspables}
         {agent_state}
-        Never forget you are {agent_name}! Never forget you can only reach {reachable_panels}!
+        Never forget you are {agent_name}! Never forget you can only reach {graspables}!
         Think step-by-step about the task and others' response. Carefully check and correct them if they made a mistake. 
         Improve your plans if given [Environment Feedback].
         """
@@ -172,14 +229,14 @@ class RocobenchTest(BaseEnv):
             half_size=0.02,
             color=np.array([12, 42, 160, 255]) / 255,
             name="cubeA",
-            initial_pose=sapien.Pose(p=[1, 0, 0.02]),
+            initial_pose=sapien.Pose(p=[-1, 0, 0.02]),
         )
         self.cubeB = actors.build_cube(
             self.scene,
             half_size=0.02,
             color=[0, 1, 0, 1],
             name="cubeB",
-            initial_pose=sapien.Pose(p=[-1, 0, 0.02]),
+            initial_pose=sapien.Pose(p=[1, 0, 0.02]),
         )
         self.goal_region = [actors.build_red_white_target(
             self.scene,
@@ -212,10 +269,10 @@ class RocobenchTest(BaseEnv):
             #cubeA is blue, cubeB is green
             cubeA_xyz = torch.zeros((b, 3))
             cubeA_xyz[:, 0] = torch.rand((b,)) * 0.1 - 0.05
-            cubeA_xyz[:, 1] = 0.5 - torch.rand((b,)) * 0.1 + 0.05
+            cubeA_xyz[:, 1] = -0.5 - torch.rand((b,)) * 0.1 + 0.05
             cubeB_xyz = torch.zeros((b, 3))
             cubeB_xyz[:, 0] = torch.rand((b,)) * 0.1 - 0.05
-            cubeB_xyz[:, 1] = -0.5 + torch.rand((b,)) * 0.1 - 0.05
+            cubeB_xyz[:, 1] = 0.5 + torch.rand((b,)) * 0.1 - 0.05
             cubeA_xyz[:, 2] = 0.02
             cubeB_xyz[:, 2] = 0.02
 
@@ -286,7 +343,7 @@ class RocobenchTest(BaseEnv):
             cubeB_in_goal * cubeA_in_goal
         )
         return {
-            "is_agentB_grasping_cubeA": is_agentB_grasping_cubeA,
+            "is_agentB_grasping_cubeA": is_agentB_grasping_cubeA, # bad, redo later with Union[None, Actor]
             "is_agentA_grasping_cubeB": is_agentA_grasping_cubeB,
             "is_agentB_grasping_cubeB": is_agentB_grasping_cubeB,
             "is_agentA_grasping_cubeA": is_agentA_grasping_cubeA,
@@ -298,15 +355,43 @@ class RocobenchTest(BaseEnv):
         }
 
     def _get_obs_extra(self, info: dict):
+        pos_A = self.cubeA.pose.p
+        pos_B = self.cubeB.pose.p
+        cubeB_to_goalB_dist = torch.linalg.norm(
+            self.cubeB.pose.p[:, :2] - self.goal_region[1].pose.p[..., :2], axis=1
+        )
+        cubeA_to_goalA_dist = torch.linalg.norm(
+            self.cubeA.pose.p[:, :2] - self.goal_region[0].pose.p[..., :2], axis=1
+        )
+        cubeB_in_goal = cubeB_to_goalB_dist < self.goal_radius
+        cubeA_in_goal = cubeA_to_goalA_dist < self.goal_radius
+        is_agentB_grasping_cubeA = self.agentB.is_grasping(self.cubeA)
+        is_agentB_grasping_cubeB = self.agentB.is_grasping(self.cubeB)
+        is_agentA_grasping_cubeA = self.agentA.is_grasping(self.cubeA)
+        is_agentA_grasping_cubeB = self.agentA.is_grasping(self.cubeB)
+        success = (
+            cubeB_in_goal * cubeA_in_goal
+        )
+        
         obs = dict(
             arm_b_tcp=self.agentB.tcp.pose.raw_pose,
             arm_a_tcp=self.agentA.tcp.pose.raw_pose,
         )
+
         if "state" in self.obs_mode:
             obs.update(
-                goal_region_pos=[self.goal_region[0].pose.p, self.goal_region[1].pose.p],
+                cubeA_goal_region_pos=self.goal_region[0].pose.p,
+                cubeB_goal_region_pos=self.goal_region[1].pose.p,
                 cubeA_pose=self.cubeA.pose.raw_pose,
                 cubeB_pose=self.cubeB.pose.raw_pose,
+                is_agentB_grasping_cubeA=is_agentB_grasping_cubeA,
+                is_agentA_grasping_cubeB=is_agentA_grasping_cubeB,
+                is_agentB_grasping_cubeB=is_agentB_grasping_cubeB,
+                is_agentA_grasping_cubeA=is_agentA_grasping_cubeA,
+                is_cubeA_grasped=is_agentA_grasping_cubeA or is_agentB_grasping_cubeA,
+                is_cubeB_grasped=is_agentA_grasping_cubeB or is_agentB_grasping_cubeB,
+                cubeA_in_goal=cubeA_in_goal,
+                cubeB_in_goal=cubeB_in_goal,
                 arm_b_tcp_to_cubeA_pos=self.cubeA.pose.p
                 - self.agentB.tcp.pose.p,
                 arm_a_tcp_to_cubeB_pos=self.cubeB.pose.p

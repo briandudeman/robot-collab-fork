@@ -36,7 +36,7 @@ class LLMPathPlan:
     
     @property
     def num_robots(self):
-        return len(self.agent_name)
+        return len(self.agent_names)
 
     def get_robot_action_str(self, name) -> str:
         return self.action_strs.get(name, "")

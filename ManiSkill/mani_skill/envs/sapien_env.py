@@ -969,6 +969,7 @@ class BaseEnv(gym.Env):
 
         info = self.get_info()
         if reset_to_env_states_obs is None:
+            print("info: ", info)
             obs = self.get_obs(info)
         else:
             obs = self._last_obs
