@@ -35,7 +35,7 @@ Each <coord> is a tuple (x,y,z) for gripper location, follow these steps to plan
     If a plan failed to execute, re-plan to choose more feasible steps in each PATH, or choose different actions.
 """
 
-class DialogPrompter:
+class DialogPrompterM:
     """
     Each round contains multiple prompts, query LLM once per each agent 
     """

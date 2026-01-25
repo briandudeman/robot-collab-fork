@@ -7,7 +7,7 @@ import torch
 from transforms3d.euler import euler2quat
 
 from mani_skill.agents.multi_agent import MultiAgent
-from mani_skill.agents.robots.panda import Panda
+from mani_skill.agents.robots.panda import PandaWristCam
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.envs.utils.randomization.pose import random_quaternions
 from mani_skill.sensors.camera import CameraConfig
@@ -60,7 +60,7 @@ class RocobenchTest(BaseEnv):
 
     _sample_video_link = "https://github.com/haosulab/ManiSkill/raw/main/figures/environment_demos/TwoRobotStackCube-v1_rt.mp4"
     SUPPORTED_ROBOTS = [("panda_wristcam", "panda_wristcam")]
-    agent: MultiAgent[Tuple[Panda, Panda]]
+    agent: MultiAgent[Tuple[PandaWristCam, PandaWristCam]]
 
     goal_radius = 0.06
 
