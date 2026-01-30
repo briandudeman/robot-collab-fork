@@ -317,7 +317,6 @@ class RocobenchTest(BaseEnv):
 
     # the robot that is next to goal region b, formerly left_agent
     @property
-<<<<<<< Updated upstream
     def agentB(self) -> Panda:
         return self.agent.agents[0]
 
