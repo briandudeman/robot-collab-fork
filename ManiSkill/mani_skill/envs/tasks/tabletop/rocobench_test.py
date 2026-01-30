@@ -160,11 +160,19 @@ class RocobenchTest(BaseEnv):
             )
 
     @property
+<<<<<<< Updated upstream
     def left_agent(self) -> Panda:
         return self.agent.agents[0]
 
     @property
     def right_agent(self) -> Panda:
+=======
+    def agentB(self) -> PandaWristCam:
+        return self.agent.agents[0]
+
+    @property
+    def agentA(self) -> PandaWristCam:
+>>>>>>> Stashed changes
         return self.agent.agents[1]
 
     def evaluate(self):
