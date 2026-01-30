@@ -8,27 +8,30 @@ from glob import glob
 from natsort import natsorted
 from copy import deepcopy
 import argparse
-from typing import List, Tuple, Dict, Union, Optional, Any
+from dataclasses import dataclass
+from typing import List, Annotated, Literal, Tuple, Dict, Union, Optional, Any
 from collections import defaultdict
 import matplotlib.pyplot as plt
+import gymnasium as gym
+import tyro
 
 from ManiSkill.mani_skill.envs.tasks.tabletop import RocobenchTest
+from ManiSkill.mani_skill.envs.sapien_env import BaseEnv
+from ManiSkill.mani_skill.examples.motionplanning.panda.motionplanner import \
+    PandaArmMotionPlanningSolver
+from ManiSkill.mani_skill.examples.motionplanning.base_motionplanner.utils import (
+    compute_grasp_info_by_obb, get_actor_obb)
 
 from rocobench.envs import SortOneBlockTask, CabinetTask, MoveRopeTask, SweepTask, MakeSandwichTask, PackGroceryTask, MujocoSimEnv, SimRobot, visualize_voxel_scene
 from rocobench import PlannedPathPolicy, LLMPathPlan, MultiArmRRT
-from prompting import LLMResponseParser, FeedbackManager, DialogPrompter, SingleThreadPrompter, save_episode_html
+from prompting import LLMResponseParser, FeedbackManager, DialogPrompterM, SingleThreadPrompter, save_episode_html
 
 # print out logging.info
 logging.basicConfig(level=logging.INFO)
 logging.root.setLevel(logging.INFO)
 
 TASK_NAME_MAP = {
-    "sort": SortOneBlockTask,
-    "cabinet": CabinetTask,
-    "rope": MoveRopeTask,
-    "sweep": SweepTask,
-    "sandwich": MakeSandwichTask,
-    "pack": PackGroceryTask,
+    "rocobench": RocobenchTest
 }
 
 class LLMRunner:
@@ -49,8 +52,6 @@ class LLMRunner:
         llm_comm_mode="chat",
         llm_num_replans=1,
         give_env_feedback=True,
-        skip_display=False,
-        policy_kwargs: Dict[str, Any] = dict(control_freq=50),
         direct_waypoints: int = 0,
         max_failed_waypoints: int = 0,
         debug_mode: bool = False,
@@ -59,7 +60,10 @@ class LLMRunner:
         use_feedback: bool = False,
         temperature: float = 0.0,
         llm_source: str = "gpt4",
+        vis: bool = False,
+        seed = None
         ):
+        self.seed = seed
         self.env = env
         self.env.reset() # not migrated
         self.robots = robots
@@ -80,7 +84,8 @@ class LLMRunner:
         self.give_env_feedback = give_env_feedback
         self.use_history = use_history
         self.use_feedback = use_feedback
-
+        self.vis = vis
+        
         self.llm_output_mode = llm_output_mode
         self.debug_mode = debug_mode # useful for debug
 
@@ -91,9 +96,7 @@ class LLMRunner:
         if llm_output_mode == "action_and_path":
             self.response_keywords.append('PATH')
         
-        self.policy_kwargs = policy_kwargs
         self.video_format = video_format
-        self.skip_display = skip_display
         self.split_parsed_plans = split_parsed_plans
         self.temperature = temperature
         self.parser = LLMResponseParser( # not migrated to maniskill
@@ -103,8 +106,7 @@ class LLMRunner:
             self.response_keywords,
             self.direct_waypoints,
             use_prepick=self.env.use_prepick,
-            use_preplace=self.env.use_preplace, # NOTE: should be custom defined in each task env
-            split_parsed_plans=False, # self.split_parsed_plans,
+            use_preplace=self.env.use_preplace # NOTE: should be custom defined in each task env
         )
         self.feedback_manager = FeedbackManager( # not migrated to maniskill
             env=self.env,
@@ -131,7 +133,7 @@ class LLMRunner:
             )
 
         else:
-            self.prompter = DialogPrompter( # not migrated to maniskill
+            self.prompter = DialogPrompterM(
                 env=self.env,
                 parser=self.parser,
                 feedback_manager=self.feedback_manager,
@@ -179,7 +181,7 @@ class LLMRunner:
 
         done = False
         reward = 0
-        obs = env.get_obs() # not migrated to maniskill
+        obs = env.get_obs()
         for step in range(start_step, start_step + self.max_runner_steps):
 
             step_dir = os.path.join(save_dir, f"step_{step}")
@@ -215,11 +217,6 @@ class LLMRunner:
                     print(f"Run {run_id}: Step {step} failed to get a plan from LLM. Move on to next step.")
                     continue
 
-                if not self.skip_display:
-                    for i, plan in enumerate(current_llm_plan):
-                        self.display_plan(plan, save_name=f"vis_llm_plan_{i}", save_dir=step_dir)
-
-
                 for i, plan in enumerate(current_llm_plan):
                     save_fname = os.path.join(step_dir, f"llm_plan_{i}.pkl")
                     with open(save_fname, "wb") as f:
@@ -232,7 +229,7 @@ class LLMRunner:
 
             for i, plan in enumerate(current_llm_plan):
                 print('tograsp:', plan.tograsp, 'inhand:', plan.inhand, plan.action_strs)
-                policy = PlannedPathPolicy( # not migrated to maniskill
+                """policy = PlannedPathPolicy( # not migrated to maniskill
                     physics=env.physics,
                     robots=self.robots,
                     path_plan=plan,
@@ -240,7 +237,18 @@ class LLMRunner:
                     allowed_collision_pairs=self.env.get_allowed_collision_pairs(),
                     plan_splitted=self.split_parsed_plans,
                     **self.policy_kwargs,
+                )"""
+                
+                solver = PandaArmMotionPlanningSolver(
+                    env=env,
+                    vis=self.vis,
+                    seed=self.seed,
+                    debug=False,
+                    visualize_target_grasp_pose=self.vis,
+                    print_env_info=False,
                 )
+                
+                # some equivalent of policy here
 
                 num_sim_steps = 0
                 if prev_actions is not None:
@@ -376,118 +384,181 @@ class LLMRunner:
             print(f"==== Run {run_id} starts ====")
             self.one_run(run_id)
 
-def main(args):
-    assert args.task in TASK_NAME_MAP.keys(), f"Task {args.task} not supported"
-    env_cl = TASK_NAME_MAP[args.task]
-    if args.task == 'rope':
-        args.output_mode = 'action_and_path'
-        args.split_parsed_plans = True
-        logging.warning("MoveRopeTask requires split parsed plans\n")
+@dataclass
+class Args:
+    llm_source: Annotated[Literal['gpt-3.5-turbo', 'gpt-4o-mini' 'gpt-4', 'gpt-3.5-turbo-16k'], tyro.conf.arg(aliases=["-llm"])] = "gpt-4"
+    """The name of the llm model to use"""
+    
+    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "RocobenchTest"
+    """The environment ID of the task you want to simulate"""
 
-        args.control_freq = 20
-        args.max_failed_waypoints = 0
-        logging.warning("MopeRope requires max failed waypoints 0\n")
-        if not args.no_feedback:
-            args.tstep = 5
-            logging.warning("MoveRope needs only 5 tsteps\n")
+    obs_mode: Annotated[str, tyro.conf.arg(aliases=["-o"])] = "none"
+    """Observation mode"""
 
-    elif args.task == 'pack':
-        args.output_mode = 'action_and_path'
-        args.control_freq = 10
-        args.split_parsed_plans = True
-        args.max_failed_waypoints = 0
-        args.direct_waypoints = 0
-        logging.warning("PackGroceryTask requires split parsed plans, and no failed waypoints, no direct waypoints\n")
+    robot_uids: Annotated[Optional[str], tyro.conf.arg(aliases=["-r"])] = None
+    """Robot UID(s) to use. Can be a comma separated list of UIDs or empty string to have no agents. If not given then defaults to the environments default robot"""
 
-    render_freq = 600
-    if args.control_freq == 15:
-        render_freq = 1200
-    elif args.control_freq == 10:
-        render_freq = 2000
-    elif args.control_freq == 5:
-        render_freq = 3000
+    sim_backend: Annotated[str, tyro.conf.arg(aliases=["-b"])] = "auto"
+    """Which simulation backend to use. Can be 'auto', 'cpu', 'gpu'"""
 
-    env = RocobenchTest()
-    env = env_cl( # not migrated to maniskill
-        render_freq=render_freq,
-        image_hw=(400,400),
-        sim_forward_steps=300,
-        error_freq=30,
-        error_threshold=1e-5,
-        randomize_init=True,
-        render_point_cloud=0,
-        render_cameras=["face_panda","face_ur5e","teaser",],
-        one_obj_each=True,
+    render_backend: Annotated[str, tyro.conf.arg(aliases=["-rb"])] = "gpu"
+    """Which render backend to use. Can be 'gpu', 'cpu', 'none'"""
+
+    reward_mode: Optional[str] = None
+    """Reward mode"""
+
+    num_envs: Annotated[int, tyro.conf.arg(aliases=["-n"])] = 1
+    """Number of environments to run."""
+
+    control_mode: Annotated[Optional[str], tyro.conf.arg(aliases=["-c"])] = "pd_joint_pos"
+    """Control mode"""
+
+    render_mode: str = "rgb_array"
+    """Render mode"""
+
+    shader: str = "default"
+    """Change shader used for all cameras in the environment for rendering. Default is 'minimal' which is very fast. Can also be 'rt' for ray tracing and generating photo-realistic renders. Can also be 'rt-fast' for a faster but lower quality ray-traced renderer"""
+
+    data_dir: str = "data"
+    """Directory to save data on the run"""
+
+    record_dir: Optional[str] = None
+    """Directory to save recordings"""
+
+    pause: Annotated[bool, tyro.conf.arg(aliases=["-p"])] = False
+    """If using human render mode, auto pauses the simulation upon loading"""
+
+    quiet: bool = False
+    """Disable verbose output."""
+
+    seed: Annotated[Optional[Union[int, list[int]]], tyro.conf.arg(aliases=["-s"])] = None
+    """Seed(s) for random actions and simulator. Can be a single integer or a list of integers. Default is None (no seeds)"""
+
+    tsteps: Annotated[int, tyro.conf.arg(aliases=["-tsteps"])] = 10
+    """The number of times you can rerun the simulation."""
+    
+    num_runs: Annotated[int, tyro.conf.arg(aliases=["-nruns"])] = 1
+    """The number of times the simulation will run, tsteps is nested inside of this."""
+    
+    run_name: Annotated[str, tyro.conf.arg(aliases=["-rn"])] = "test"
+    """The name of the run, for logging purposes."""
+    
+    temperature: Annotated[int, tyro.conf.arg(aliases=["-temp"])] = 0
+    """LLM argument for the randomness in selecting the next token."""
+    
+    start_id: Annotated[int, tyro.conf.arg(aliases=["-sid"])] = -1
+    """The number/id of the starting run"""
+    
+    output_mode: Annotated[Literal["action_only", "action_and_path"], tyro.conf.arg(aliases=["-output_mode"])] = "action_only"
+    """The output mode of the dialog prompter."""
+    
+    comm_mode: Annotated[Literal["chat", "plan", "dialog"], tyro.conf.arg(aliases=["-comm_mode"])] = "dialog"
+    """The communication mode of the LLM model. dialog is used with DialogPrompterM"""
+    
+    direct_waypoints: Annotated[int, tyro.conf.arg(aliases=["-dw"])] = 5
+    """Used by the response parser."""
+    
+    num_replans: Annotated[int, tyro.conf.arg(aliases=["-nr"])] = 5
+    """Number of replans the LLM can do for 1 round."""
+    
+    cont: Annotated[bool, tyro.conf.arg(aliases=["-c"])] = False
+    """Continuing from previous run, not implemented for now."""
+    
+    load_run_name: Annotated[str, tyro.conf.arg(aliases=["-lr"])] = "sort_task"
+    """The name of the run to load if cont is True."""
+    
+    load_run_id: Annotated[int, tyro.conf.arg(aliases=["-ld"])] = 0
+    """The id of the run to load if cont is True."""
+
+    max_failed_waypoints: Annotated[int, tyro.conf.arg(aliases=["-max"])] = 1
+    """The number of failed waypoints before termination. The feedback manager uses this."""
+
+    debug_mode: Annotated[bool, tyro.conf.arg(aliases=["-i"])] = False
+    """Enables or disables debug mode."""
+
+    no_history: Annotated[bool, tyro.conf.arg(aliases=["-nh"])] = False
+    """Enables or disables history for the system prompt for the LLM"""
+
+    no_feedback: Annotated[bool, tyro.conf.arg(aliases=["-nf"])] = False
+    """Enables or disables feedback for the system prompt for the LLM"""
+
+    vis: Annotated[bool, tyro.conf.arg(aliases=["-vis"])] = False
+    """whether or not to open a GUI to visualize the a motionplanning solution live"""
+
+
+
+
+def main(args: Args):
+
+    if args.render_mode == "none":
+        args.render_mode = None
+    np.set_printoptions(suppress=True, precision=3)
+    verbose = not args.quiet
+    if isinstance(args.seed, int):
+        args.seed = [args.seed]
+    if args.seed is not None:
+        np.random.seed(args.seed[0])
+    parallel_in_single_scene = args.render_mode == "human"
+    if args.render_mode == "human" and args.obs_mode in ["sensor_data", "rgb", "rgbd", "depth", "point_cloud"]:
+        print("Disabling parallel single scene/GUI render as observation mode is a visual one. Change observation mode to state or state_dict to see a parallel env render")
+        parallel_in_single_scene = False
+    if args.render_mode == "human" and args.num_envs == 1:
+        parallel_in_single_scene = False
+
+    env_kwargs = dict(
+        obs_mode=args.obs_mode,
+        reward_mode=args.reward_mode,
+        control_mode=args.control_mode,
+        render_mode=args.render_mode,
+        sensor_configs=dict(shader_pack=args.shader),
+        human_render_camera_configs=dict(shader_pack=args.shader),
+        viewer_camera_configs=dict(shader_pack=args.shader),
+        num_envs=args.num_envs,
+        sim_backend=args.sim_backend,
+        render_backend=args.render_backend,
+        enable_shadow=True,
+        parallel_in_single_scene=parallel_in_single_scene,
     )
-    robots = env.get_sim_robots() # not migrated to maniskill
-    if args.no_feedback:
-        assert args.num_replans == 1, "no feedback mode requires num_replans=1 but longer -tsteps"
 
+    env : BaseEnv = gym.make(
+        args.env_id,
+        **env_kwargs
+    )
+    
 
     # save args into a json file
     args_dict = vars(args)
-    args_dict["env"] = env.__class__.__name__ # not migrated to maniskill
+    args_dict["env"] = env.__class__.__name__
     timestamp = datetime.now().strftime("%Y%m_%H%M")
     fname = os.path.join(args.data_dir, args.run_name, f"args_{timestamp}.json")
     os.makedirs(os.path.dirname(fname), exist_ok=True)
     json.dump(args_dict, open(fname, "w"), indent=2)
-    runner = LLMRunner( # not migrated to maniskill
+    
+    runner = LLMRunner( # all args migrated, but class not migrated to maniskill
         env=env,
         data_dir=args.data_dir,
-        robots=robots,
         max_runner_steps=args.tsteps,
         num_runs=args.num_runs,
         run_name=args.run_name,
         overwrite=True,
-        skip_display=args.skip_display,
         llm_output_mode=args.output_mode, # "action_only" or "action_and_path"
         llm_comm_mode=args.comm_mode, # "chat" or "plan"
         llm_num_replans=args.num_replans,
-        policy_kwargs=dict(
-            control_freq=args.control_freq,
-            use_weld=args.use_weld,
-            skip_direct_path=0,
-            skip_smooth_path=0,
-            check_relative_pose=args.rel_pose,
-        ),
         direct_waypoints=args.direct_waypoints,
         max_failed_waypoints=args.max_failed_waypoints,
         debug_mode=args.debug_mode,
-        split_parsed_plans=args.split_parsed_plans,
         use_history=(not args.no_history),
         use_feedback=(not args.no_feedback),
         temperature=args.temperature,
         llm_source=args.llm_source,
+        vis=args.vis,
+        seed=args.seed
     )
     runner.run(args)
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", "-d", type=str, default="data")
-    parser.add_argument("--temperature", "-temp", type=float, default=0)
-    parser.add_argument("--start_id", "-sid", type=int, default=-1)
-    parser.add_argument("--num_runs", '-nruns', type=int, default=1)
-    parser.add_argument("--run_name", "-rn", type=str, default="test")
-    parser.add_argument("--tsteps", "-t", type=int, default=10)
-    parser.add_argument("--task", type=str, default="sort_one")
-    parser.add_argument("--output_mode", type=str, default="action_only", choices=["action_only", "action_and_path"])
-    parser.add_argument("--comm_mode", type=str, default="dialog", choices=["chat", "plan", "dialog"])
-    parser.add_argument("--control_freq", "-cf", type=int, default=15)
-    parser.add_argument("--skip_display", "-sd", action="store_true")
-    parser.add_argument("--direct_waypoints", "-dw", type=int, default=5)
-    parser.add_argument("--num_replans", "-nr", type=int, default=5)
-    parser.add_argument("--cont", "-c", action="store_true")
-    parser.add_argument("--load_run_name", "-lr", type=str, default="sort_task")
-    parser.add_argument("--load_run_id", "-ld", type=int, default=0)
-    parser.add_argument("--max_failed_waypoints", "-max", type=int, default=1)
-    parser.add_argument("--debug_mode", "-i", action="store_true")
-    parser.add_argument("--use_weld", "-w", type=int, default=1)
-    parser.add_argument("--rel_pose", "-rp", action="store_true")
-    parser.add_argument("--split_parsed_plans", "-sp", action="store_true")
-    parser.add_argument("--no_history", "-nh", action="store_true")
-    parser.add_argument("--no_feedback", "-nf", action="store_true")
-    parser.add_argument("--llm_source", "-llm", type=str, default="gpt-4")
-    logging.basicConfig(level=logging.INFO)
 
-    args = parser.parse_args()
-    main(args)
+
+if __name__ == "__main__":
+    parsed_args = tyro.cli(Args)
+    logging.basicConfig(level=logging.INFO)
+    main(parsed_args)
