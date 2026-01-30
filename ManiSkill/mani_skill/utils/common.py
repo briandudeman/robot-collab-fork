@@ -154,6 +154,7 @@ def to_tensor(array: Array, device: Optional[Device] = None):
             and CPU otherwise
 
     """
+
     if isinstance(array, (dict)):
         return {k: to_tensor(v, device=device) for k, v in array.items()}
     elif isinstance(array, torch.Tensor):
