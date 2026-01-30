@@ -17,7 +17,10 @@ import tyro
 
 from ManiSkill.mani_skill.envs.tasks.tabletop import RocobenchTest
 from ManiSkill.mani_skill.envs.sapien_env import BaseEnv
-
+from ManiSkill.mani_skill.examples.motionplanning.panda.motionplanner import \
+    PandaArmMotionPlanningSolver
+from ManiSkill.mani_skill.examples.motionplanning.base_motionplanner.utils import (
+    compute_grasp_info_by_obb, get_actor_obb)
 
 from rocobench.envs import SortOneBlockTask, CabinetTask, MoveRopeTask, SweepTask, MakeSandwichTask, PackGroceryTask, MujocoSimEnv, SimRobot, visualize_voxel_scene
 from rocobench import PlannedPathPolicy, LLMPathPlan, MultiArmRRT
@@ -49,8 +52,6 @@ class LLMRunner:
         llm_comm_mode="chat",
         llm_num_replans=1,
         give_env_feedback=True,
-        skip_display=False,
-        policy_kwargs: Dict[str, Any] = dict(control_freq=50),
         direct_waypoints: int = 0,
         max_failed_waypoints: int = 0,
         debug_mode: bool = False,
@@ -59,7 +60,10 @@ class LLMRunner:
         use_feedback: bool = False,
         temperature: float = 0.0,
         llm_source: str = "gpt4",
+        vis: bool = False,
+        seed = None
         ):
+        self.seed = seed
         self.env = env
         self.env.reset() # not migrated
         self.robots = robots
@@ -80,7 +84,8 @@ class LLMRunner:
         self.give_env_feedback = give_env_feedback
         self.use_history = use_history
         self.use_feedback = use_feedback
-
+        self.vis = vis
+        
         self.llm_output_mode = llm_output_mode
         self.debug_mode = debug_mode # useful for debug
 
@@ -91,9 +96,7 @@ class LLMRunner:
         if llm_output_mode == "action_and_path":
             self.response_keywords.append('PATH')
         
-        self.policy_kwargs = policy_kwargs
         self.video_format = video_format
-        self.skip_display = skip_display
         self.split_parsed_plans = split_parsed_plans
         self.temperature = temperature
         self.parser = LLMResponseParser( # not migrated to maniskill
@@ -103,8 +106,7 @@ class LLMRunner:
             self.response_keywords,
             self.direct_waypoints,
             use_prepick=self.env.use_prepick,
-            use_preplace=self.env.use_preplace, # NOTE: should be custom defined in each task env
-            split_parsed_plans=False, # self.split_parsed_plans,
+            use_preplace=self.env.use_preplace # NOTE: should be custom defined in each task env
         )
         self.feedback_manager = FeedbackManager( # not migrated to maniskill
             env=self.env,
@@ -179,7 +181,7 @@ class LLMRunner:
 
         done = False
         reward = 0
-        obs = env.get_obs() # not migrated to maniskill
+        obs = env.get_obs()
         for step in range(start_step, start_step + self.max_runner_steps):
 
             step_dir = os.path.join(save_dir, f"step_{step}")
@@ -215,11 +217,6 @@ class LLMRunner:
                     print(f"Run {run_id}: Step {step} failed to get a plan from LLM. Move on to next step.")
                     continue
 
-                if not self.skip_display:
-                    for i, plan in enumerate(current_llm_plan):
-                        self.display_plan(plan, save_name=f"vis_llm_plan_{i}", save_dir=step_dir)
-
-
                 for i, plan in enumerate(current_llm_plan):
                     save_fname = os.path.join(step_dir, f"llm_plan_{i}.pkl")
                     with open(save_fname, "wb") as f:
@@ -232,7 +229,7 @@ class LLMRunner:
 
             for i, plan in enumerate(current_llm_plan):
                 print('tograsp:', plan.tograsp, 'inhand:', plan.inhand, plan.action_strs)
-                policy = PlannedPathPolicy( # not migrated to maniskill
+                """policy = PlannedPathPolicy( # not migrated to maniskill
                     physics=env.physics,
                     robots=self.robots,
                     path_plan=plan,
@@ -240,7 +237,18 @@ class LLMRunner:
                     allowed_collision_pairs=self.env.get_allowed_collision_pairs(),
                     plan_splitted=self.split_parsed_plans,
                     **self.policy_kwargs,
+                )"""
+                
+                solver = PandaArmMotionPlanningSolver(
+                    env=env,
+                    vis=self.vis,
+                    seed=self.seed,
+                    debug=False,
+                    visualize_target_grasp_pose=self.vis,
+                    print_env_info=False,
                 )
+                
+                # some equivalent of policy here
 
                 num_sim_steps = 0
                 if prev_actions is not None:
@@ -426,6 +434,59 @@ class Args:
     seed: Annotated[Optional[Union[int, list[int]]], tyro.conf.arg(aliases=["-s"])] = None
     """Seed(s) for random actions and simulator. Can be a single integer or a list of integers. Default is None (no seeds)"""
 
+    tsteps: Annotated[int, tyro.conf.arg(aliases=["-tsteps"])] = 10
+    """The number of times you can rerun the simulation."""
+    
+    num_runs: Annotated[int, tyro.conf.arg(aliases=["-nruns"])] = 1
+    """The number of times the simulation will run, tsteps is nested inside of this."""
+    
+    run_name: Annotated[str, tyro.conf.arg(aliases=["-rn"])] = "test"
+    """The name of the run, for logging purposes."""
+    
+    temperature: Annotated[int, tyro.conf.arg(aliases=["-temp"])] = 0
+    """LLM argument for the randomness in selecting the next token."""
+    
+    start_id: Annotated[int, tyro.conf.arg(aliases=["-sid"])] = -1
+    """The number/id of the starting run"""
+    
+    output_mode: Annotated[Literal["action_only", "action_and_path"], tyro.conf.arg(aliases=["-output_mode"])] = "action_only"
+    """The output mode of the dialog prompter."""
+    
+    comm_mode: Annotated[Literal["chat", "plan", "dialog"], tyro.conf.arg(aliases=["-comm_mode"])] = "dialog"
+    """The communication mode of the LLM model. dialog is used with DialogPrompterM"""
+    
+    direct_waypoints: Annotated[int, tyro.conf.arg(aliases=["-dw"])] = 5
+    """Used by the response parser."""
+    
+    num_replans: Annotated[int, tyro.conf.arg(aliases=["-nr"])] = 5
+    """Number of replans the LLM can do for 1 round."""
+    
+    cont: Annotated[bool, tyro.conf.arg(aliases=["-c"])] = False
+    """Continuing from previous run, not implemented for now."""
+    
+    load_run_name: Annotated[str, tyro.conf.arg(aliases=["-lr"])] = "sort_task"
+    """The name of the run to load if cont is True."""
+    
+    load_run_id: Annotated[int, tyro.conf.arg(aliases=["-ld"])] = 0
+    """The id of the run to load if cont is True."""
+
+    max_failed_waypoints: Annotated[int, tyro.conf.arg(aliases=["-max"])] = 1
+    """The number of failed waypoints before termination. The feedback manager uses this."""
+
+    debug_mode: Annotated[bool, tyro.conf.arg(aliases=["-i"])] = False
+    """Enables or disables debug mode."""
+
+    no_history: Annotated[bool, tyro.conf.arg(aliases=["-nh"])] = False
+    """Enables or disables history for the system prompt for the LLM"""
+
+    no_feedback: Annotated[bool, tyro.conf.arg(aliases=["-nf"])] = False
+    """Enables or disables feedback for the system prompt for the LLM"""
+
+    vis: Annotated[bool, tyro.conf.arg(aliases=["-vis"])] = False
+    """whether or not to open a GUI to visualize the a motionplanning solution live"""
+
+
+
 
 def main(args: Args):
 
@@ -463,7 +524,6 @@ def main(args: Args):
         args.env_id,
         **env_kwargs
     )
-    robots = env.get_sim_robots() # not migrated to maniskill
     
 
     # save args into a json file
@@ -474,33 +534,25 @@ def main(args: Args):
     os.makedirs(os.path.dirname(fname), exist_ok=True)
     json.dump(args_dict, open(fname, "w"), indent=2)
     
-    runner = LLMRunner( # not migrated to maniskill
-        env=env, # fixed in args
-        data_dir=args.data_dir, # fixed in args
-        robots=robots,
+    runner = LLMRunner( # all args migrated, but class not migrated to maniskill
+        env=env,
+        data_dir=args.data_dir,
         max_runner_steps=args.tsteps,
         num_runs=args.num_runs,
         run_name=args.run_name,
         overwrite=True,
-        skip_display=args.skip_display,
         llm_output_mode=args.output_mode, # "action_only" or "action_and_path"
         llm_comm_mode=args.comm_mode, # "chat" or "plan"
         llm_num_replans=args.num_replans,
-        policy_kwargs=dict(
-            control_freq=args.control_freq,
-            use_weld=args.use_weld,
-            skip_direct_path=0,
-            skip_smooth_path=0,
-            check_relative_pose=args.rel_pose,
-        ),
         direct_waypoints=args.direct_waypoints,
         max_failed_waypoints=args.max_failed_waypoints,
         debug_mode=args.debug_mode,
-        split_parsed_plans=args.split_parsed_plans,
         use_history=(not args.no_history),
         use_feedback=(not args.no_feedback),
         temperature=args.temperature,
         llm_source=args.llm_source,
+        vis=args.vis,
+        seed=args.seed
     )
     runner.run(args)
 
