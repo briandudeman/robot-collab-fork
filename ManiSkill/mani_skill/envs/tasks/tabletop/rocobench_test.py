@@ -317,11 +317,11 @@ class RocobenchTest(BaseEnv):
 
     # the robot that is next to goal region b, formerly left_agent
     @property
-    def agentB(self) -> Panda:
+    def agentB(self) -> PandaWristCam:
         return self.agent.agents[0]
 
     @property
-    def agentA(self) -> Panda:
+    def agentA(self) -> PandaWristCam:
         return self.agent.agents[1]
 
     def evaluate(self):
