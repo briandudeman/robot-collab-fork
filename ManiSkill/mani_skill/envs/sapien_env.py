@@ -1097,6 +1097,7 @@ class BaseEnv(gym.Env):
                 ), "Received a dictionary for an action but there are not multiple robots in the environment"
                 # assume this is a multi-agent action
                 action = common.to_tensor(action, device=self.device)
+                print("action dict?: ", action)
                 for k, a in action.items():
                     if a.shape == self._orig_single_action_space[k].shape:
                         action_is_unbatched = True

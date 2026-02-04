@@ -56,6 +56,7 @@ class BaseMotionPlanningSolver:
         move_group = self.MOVE_GROUP if hasattr(self, "MOVE_GROUP") else "eef"
         link_names = [link.get_name() for link in self.robot.get_links()]
         joint_names = [joint.get_name() for joint in self.robot.get_active_joints()]
+    
         planner = mplib.Planner(
             urdf=self.env_agent.urdf_path,
             srdf=self.env_agent.urdf_path.replace(".urdf", ".srdf"),

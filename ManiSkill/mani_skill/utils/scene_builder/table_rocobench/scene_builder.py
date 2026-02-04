@@ -169,15 +169,15 @@ class RocoTableSceneBuilder(SceneBuilder):
             agent: MultiAgent = self.env.agent
             qpos = np.array(
                 [
-                    0.0,
-                    np.pi / 8,
-                    0,
-                    -np.pi * 5 / 8,
-                    0,
-                    np.pi * 3 / 4,
-                    np.pi / 4,
-                    0.04,
-                    0.04,
+                    0, # base rotation, look up "frank emika panda robots joint positions documentaion" pictures for a basic example
+                    np.pi / 8, # angle from 90 for second joint up
+                    0.0, # rotation joint a little down from the grey circle joint thing
+                    -np.pi * 5 / 8, # rotation of grey circle joint inline with base position line, positive shouldnt exist/ work. measured from fully extended joint
+                    0.0, # wrist joint, rotation right after previous joint
+                    np.pi * 3 / 4, # rotation join inline with base rotation, 0 angle is folded against bottome of wrist
+                    -np.pi / 4, # hand rotation joint, right after previous joint, starting at a pi / 4 angle for some reason?
+                    0.04, # finger 1 open position, 0 is closed
+                    0.04, # finger 2 open position, 0 is closed
                 ]
             )
             if self.env._enhanced_determinism:
@@ -196,27 +196,29 @@ class RocoTableSceneBuilder(SceneBuilder):
                 )
             qpos[:, -2:] = 0.04
             agent.agents[1].reset(qpos)
+            # first 3 numbers control position, xyz, q is quaternion rotation, but the euler2quat inputs are euler angles
             agent.agents[1].robot.set_pose(
-                sapien.Pose([0, 0.75, 0], q=euler2quat(0, 0, -np.pi / 2))
+                sapien.Pose([0.5, .5, 0], q=euler2quat(0, 0, -np.pi))
             )
             agent.agents[0].reset(qpos)
             agent.agents[0].robot.set_pose(
-                sapien.Pose([0, -0.75, 0], q=euler2quat(0, 0, np.pi / 2))
+                sapien.Pose([-0.5, -.5, 0], q=euler2quat(0, 0, 0))
             )
 
         # this is where everything will happen for now
         elif self.env.robot_uids == ("panda_wristcam", "panda_wristcam"):
             
             agent: MultiAgent = self.env.agent
+            
             qpos = np.array(
                 [
                     0, # base rotation, look up "frank emika panda robots joint positions documentaion" pictures for a basic example
-                    0, # angle from 90 for second joint up
+                    np.pi / 8, # angle from 90 for second joint up
                     0.0, # rotation joint a little down from the grey circle joint thing
-                    -np.pi * 3 / 4, # rotation of grey circle joint inline with base position line, positive shouldnt exist/ work. measured from fully extended joint
+                    -np.pi * 5 / 8, # rotation of grey circle joint inline with base position line, positive shouldnt exist/ work. measured from fully extended joint
                     0.0, # wrist joint, rotation right after previous joint
                     np.pi * 3 / 4, # rotation join inline with base rotation, 0 angle is folded against bottome of wrist
-                    np.pi / 4, # hand rotation joint, right after previous joint, starting at a pi / 4 angle for some reason?
+                    -np.pi / 4, # hand rotation joint, right after previous joint, starting at a pi / 4 angle for some reason?
                     0.04, # finger 1 open position, 0 is closed
                     0.04, # finger 2 open position, 0 is closed
                 ]

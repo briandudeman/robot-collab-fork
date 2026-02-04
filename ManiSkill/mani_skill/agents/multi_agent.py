@@ -63,8 +63,13 @@ class MultiAgent(BaseAgent, Generic[T]):
         """
         Set the agent's action which is to be executed in the next environment timestep
         """
-        for uid, agent in self.agents_dict.items():
-            agent.set_action(action[uid])
+        if isinstance(action, torch.Tensor):
+            for i, agent_tuple in enumerate(self.agents_dict.items()):
+                agent_tuple[1].set_action(torch.reshape(action[i], (1, -1)))
+        elif isinstance(action, dict):    
+            for uid, agent in self.agents_dict.items():
+
+                agent.set_action(action[uid])
 
     def before_simulation_step(self):
         for agent in self.agents:
