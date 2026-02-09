@@ -95,7 +95,7 @@ class RocobenchTest(BaseEnv):
     @property
     def _default_human_render_camera_configs(self):
         # pose = sapien_utils.look_at([1.4, 0.8, 0.75], [0.0, 0.1, 0.1]) # this perspective is good for demos
-        pose = sapien_utils.look_at(eye=[0, 1.5, 1.5], target=[0, 0, 0])
+        pose = sapien_utils.look_at(eye=[-1.5, 1.5, 1], target=[0, 0, 0])
         return CameraConfig("render_camera", pose, 512, 512, 1, 0.01, 100)
 
     def get_action_prompt(self) -> str:
@@ -238,6 +238,15 @@ class RocobenchTest(BaseEnv):
             name="cubeB",
             initial_pose=sapien.Pose(p=[1, 0, 0.02]),
         )
+        self.middle_goal = actors.build_red_white_target(
+            self.scene,
+            radius=self.goal_radius,
+            thickness=1e-5,
+            name="middle_goal",
+            add_collision=False,
+            body_type="kinematic",
+            initial_pose=sapien.Pose()
+        )
         self.goal_region = [actors.build_red_white_target(
             self.scene,
             radius=self.goal_radius,
@@ -300,6 +309,13 @@ class RocobenchTest(BaseEnv):
                 Pose.create_from_pq(
                     p=target_region_a_xyz,
                     q=euler2quat(0, np.pi / 2, 0),
+                )
+            )
+            middle_region_xyz = torch.zeros((b, 3))
+            self.middle_goal.set_pose(
+                Pose.create_from_pq(
+                    p=middle_region_xyz,
+                    q=euler2quat(0, np.pi / 2, 0)
                 )
             )
 
