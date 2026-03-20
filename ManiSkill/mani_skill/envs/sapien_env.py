@@ -389,7 +389,6 @@ class BaseEnv(gym.Env):
     def _default_sim_config(self):
         return SimConfig()
     def _load_agent(self, options: dict, initial_agent_poses: Optional[Union[sapien.Pose, Pose]] = None, build_separate: bool = False):
-        print("agents getting loaded with baseenv")
         
         """
         loads the agent/controllable articulations into the environment. The default function provides a convenient way to setup the agent/robot by a robot_uid
@@ -515,6 +514,7 @@ class BaseEnv(gym.Env):
                 If this is None (the default), this function will call `self.get_info()` itself
             unflattened (bool): Whether to return the observation without flattening even if the observation mode (`self.obs_mode`) asserts to return a flattened observation.
         """
+        
         if info is None:
             info = self.get_info()
         if self._obs_mode == "none":
@@ -553,6 +553,7 @@ class BaseEnv(gym.Env):
         )
 
     def _get_obs_agent(self):
+        print("sapien get_obs_agent")
         """Get observations about the agent's state. By default it is proprioceptive observations which include qpos and qvel.
         Controller state is also included although most default controllers do not have any state."""
         return self.agent.get_proprioception()
