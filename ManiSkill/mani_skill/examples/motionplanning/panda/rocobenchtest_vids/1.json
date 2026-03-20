@@ -1,10 +1,11 @@
 {
   "env_info": {
-    "env_id": "PickCube-v1",
+    "env_id": "RocobenchTest",
     "env_kwargs": {
       "obs_mode": "none",
+      "reward_mode": null,
       "control_mode": "pd_joint_pos",
-      "render_mode": "rgb_array",
+      "render_mode": "human",
       "sensor_configs": {
         "shader_pack": "default"
       },
@@ -14,24 +15,16 @@
       "viewer_camera_configs": {
         "shader_pack": "default"
       },
-      "sim_backend": "auto"
+      "num_envs": 1,
+      "sim_backend": "auto",
+      "render_backend": "cpu",
+      "enable_shadow": true,
+      "parallel_in_single_scene": false
     },
-    "max_episode_steps": 50
+    "max_episode_steps": 100
   },
   "commit_info": null,
-  "episodes": [
-    {
-      "episode_id": 0,
-      "episode_seed": 0,
-      "control_mode": "pd_joint_pos",
-      "elapsed_steps": 74,
-      "reset_kwargs": {
-        "options": null,
-        "seed": 0
-      },
-      "success": true
-    }
-  ],
+  "episodes": [],
   "source_type": "motionplanning",
   "source_desc": "official motion planning solution from ManiSkill contributors"
 }

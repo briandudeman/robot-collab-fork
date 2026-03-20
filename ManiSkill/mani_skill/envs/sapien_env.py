@@ -1123,6 +1123,7 @@ class BaseEnv(gym.Env):
                         self.scene.px.gpu_apply_articulation_target_velocity()
         self._before_control_step()
         for _ in range(self._sim_steps_per_control):
+            print(_)
             if self.agent is not None:
                 self.agent.before_simulation_step()
             self._before_simulation_step()

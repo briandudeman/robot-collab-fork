@@ -118,6 +118,7 @@ class PDEEPosController(PDJointPosController):
         if pos_only:
             action = torch.hstack([action, torch.zeros(action.shape[0], 3, device=self.device)])
 
+        print("ik_via_target_pose: ", ik_via_target_pose)
         self._target_qpos = self.kinematics.compute_ik(
             pose=self._target_pose if ik_via_target_pose else action,
             q0=self.articulation.get_qpos(),

@@ -47,6 +47,7 @@ def images_to_video(
     else:
         images_iter = images
     for im in images_iter:
+        print(im.shape)
         writer.append_data(im)
     writer.close()
 

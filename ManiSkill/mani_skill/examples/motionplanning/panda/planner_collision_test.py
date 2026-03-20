@@ -114,7 +114,7 @@ def follow_path(result, refine_steps: int = 0):
     for i in range(n_step + refine_steps):
         qpos = result["position"][min(i, n_step - 1)]
         action = np.hstack([qpos, 1.0])
-        print(action)
+        #print(action)
         obs, reward, terminated, truncated, info = env.step(action)
         env.render()
     return obs, reward, terminated, truncated, info

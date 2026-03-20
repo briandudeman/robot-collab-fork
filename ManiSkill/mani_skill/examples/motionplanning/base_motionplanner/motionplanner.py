@@ -3,6 +3,8 @@ import numpy as np
 import sapien
 import trimesh
 
+from mani_skill.envs.tasks.tabletop.rocobench_test import RocobenchTest
+from mani_skill.agents.multi_agent import MultiAgent
 from mani_skill.agents.base_agent import BaseAgent
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.utils.structs.pose import to_sapien_pose
@@ -19,10 +21,13 @@ class BaseMotionPlanningSolver:
         print_env_info: bool = True,
         joint_vel_limits=0.9,
         joint_acc_limits=0.9,
+        agent_id=0
     ):
         self.env = env
         self.base_env: BaseEnv = env.unwrapped
         self.env_agent: BaseAgent = self.base_env.agent
+        if isinstance(self.env_agent, MultiAgent):
+            self.env_agent = self.env_agent.agents[agent_id]
         self.robot = self.env_agent.robot
         self.joint_vel_limits = joint_vel_limits
         self.joint_acc_limits = joint_acc_limits
@@ -84,7 +89,10 @@ class BaseMotionPlanningSolver:
                 action = np.hstack([qpos, qvel])
             else:
                 action = np.hstack([qpos])
-            obs, reward, terminated, truncated, info = self.env.step(action)
+            #if isinstance(self.env, RocobenchTest):
+            #    obs, reward, terminated, truncated, info = self.env.step(action, self.agent_id)
+            #else:
+            obs, reward, terminated, truncated, info = self.env.step(action)                
             self.elapsed_steps += 1
             if self.print_env_info:
                 print(

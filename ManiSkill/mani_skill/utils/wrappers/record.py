@@ -520,6 +520,7 @@ class RecordEpisode(gym.Wrapper):
         if self.save_video:
             self._video_steps += 1
             if self.info_on_video:
+                print("info on video")
                 scalar_info = gym_utils.extract_scalars_from_info(
                     common.to_numpy(info), batch_size=self.num_envs
                 )
@@ -532,8 +533,8 @@ class RecordEpisode(gym.Wrapper):
                     scalar_info["reward"] = float(scalar_info["reward"])
                 image = self.capture_image(scalar_info)
             else:
+                print("regular")
                 image = self.capture_image()
-
             self.render_images.append(image)
             if (
                 self.max_steps_per_video is not None
@@ -774,8 +775,10 @@ class RecordEpisode(gym.Wrapper):
             save (bool): whether to save the video to disk
         """
         if len(self.render_images) == 0:
+            print("self.render_images")
             return
         if ignore_empty_transition and len(self.render_images) == 1:
+            print("ignore_empty_transition")
             return
         if save:
             self._video_id += 1

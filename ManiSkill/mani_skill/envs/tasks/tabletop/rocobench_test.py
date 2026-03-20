@@ -1,4 +1,4 @@
-from typing import Any, Tuple
+from typing import Any, Tuple, Union
 
 import numpy as np
 import gymnasium as gym
@@ -95,9 +95,125 @@ class RocobenchTest(BaseEnv):
     @property
     def _default_human_render_camera_configs(self):
         # pose = sapien_utils.look_at([1.4, 0.8, 0.75], [0.0, 0.1, 0.1]) # this perspective is good for demos
-        pose = sapien_utils.look_at(eye=[-1.5, 1.5, 1], target=[0, 0, 0])
+        pose = sapien_utils.look_at(eye=[0, 1.5, 1], target=[0, 0, 0])
         return CameraConfig("render_camera", pose, 512, 512, 1, 0.01, 100)
+    
+    '''
+    def step(self, action: Union[None, np.ndarray, torch.Tensor, dict], agent_id):
+        """
+        Take a step through the environment with an action. Actions are automatically clipped to the action space.
 
+        If ``action`` is None, the environment will proceed forward in time without sending any actions/control signals to the agent
+        """
+        print("rocobench env step")
+        action = self._step_action(action, agent_id)
+        self._elapsed_steps += 1
+        info = self.get_info()
+        obs = self.get_obs(info, unflattened=True)
+        reward = self.get_reward(obs=obs, action=action, info=info)
+        obs = self._flatten_raw_obs(obs)
+        if "success" in info:
+            if "fail" in info:
+                terminated = torch.logical_or(info["success"], info["fail"])
+            else:
+                terminated = info["success"].clone()
+        else:
+            if "fail" in info:
+                terminated = info["fail"].clone()
+            else:
+                terminated = torch.zeros(self.num_envs, dtype=bool, device=self.device)
+        self._last_obs = obs
+        return (
+            obs,
+            reward,
+            terminated,
+            torch.zeros(self.num_envs, dtype=bool, device=self.device),
+            info,
+        )
+
+    def _step_action(
+        self, action: Union[None, np.ndarray, torch.Tensor, dict], agent_id
+    ) -> Union[None, torch.Tensor]:
+        set_actionA = False
+        set_actionB = False
+        set_action = False
+        action_is_unbatched = False
+        print("rocobench env _step_action")
+        
+        if agent_id == 1:
+            self.agentA.set_action(action)
+        elif agent_id == 0:
+            self.agentB.set_action(action)
+            
+        
+        
+        if (isinstance(action, torch.Tensor) or isinstance(action, np.ndarray)) and np.sum(np.isnan(action[1])) != 0:  # simulation without action
+            action = torch.reshape(common.to_tensor(action[0], device=self.device), (1, 8))            
+            if action.shape == self._orig_single_action_space.shape:
+                action_is_unbatched = True
+            set_actionA = True
+        elif isinstance(action, torch.Tensor) or isinstance(action, np.ndarray):
+            action = common.to_tensor(action, device=self.device)
+            if action.shape == self._orig_single_action_space.shape:
+                action_is_unbatched = True
+            set_actionA = True
+            set_actionB = True
+        elif isinstance(action, dict):
+            if "control_mode" in action:
+                if action["control_mode"] != self.agent.control_mode:
+                    self.agent.set_control_mode(action["control_mode"])
+                    self.agent.controller.reset()
+                action = common.to_tensor(action["action"], device=self.device)
+                if action.shape == self._orig_single_action_space.shape:
+                    action_is_unbatched = True
+            else:
+                assert isinstance(
+                    self.agent, MultiAgent
+                ), "Received a dictionary for an action but there are not multiple robots in the environment"
+                # assume this is a multi-agent action
+                action = common.to_tensor(action, device=self.device)
+                print("action dict?: ", action)
+                for k, a in action.items():
+                    if a.shape == self._orig_single_action_space[k].shape:
+                        action_is_unbatched = True
+                        break
+            set_action = True
+        else:
+            raise TypeError(type(action))
+
+        if set_actionA and set_actionB:
+            print("action", action)
+            if self.num_envs == 1 and action_is_unbatched:
+                action = common.batch(action)
+            self.agentA.set_action(torch.reshape(action, (1, 8)))
+            self.agentB.set_action(torch.reshape(action[1], (1, 8)))
+            if self._sim_device.is_cuda():
+                if isinstance(self.agent.controller, dict):
+                    # TODO: a small optimization is to cache whether the dict of controllers has any that set qpos/qvel values
+                    # in the BaseAgent/MultiAgent class. Code below just avoids iterating over the dict of controllers each time
+                    self.scene.px.gpu_apply_articulation_target_position()
+                    self.scene.px.gpu_apply_articulation_target_velocity()
+                else:
+                    if self.agent.controller.sets_target_qpos:
+                        self.scene.px.gpu_apply_articulation_target_position()
+                    if self.agent.controller.sets_target_qvel:
+                        self.scene.px.gpu_apply_articulation_target_velocity()
+        elif set_actionA and not set_actionB:
+            self.agentA.set_action(action)
+    
+        self._before_control_step()
+        for _ in range(self._sim_steps_per_control):
+            print(_)
+            if self.agent is not None:
+                self.agent.before_simulation_step()
+            self._before_simulation_step()
+            self.scene.step()
+            self._after_simulation_step()
+        self._after_control_step()
+        if self.gpu_sim_enabled:
+            self.scene._gpu_fetch_all()
+        return action
+    '''
     def get_action_prompt(self) -> str:
         return ACTION_SPACE
 
@@ -302,7 +418,7 @@ class RocobenchTest(BaseEnv):
             self.cubeB.set_pose(Pose.create_from_pq(p=cubeB_xyz, q=qs))
             
             target_region_a_xyz = torch.zeros((b, 3))
-            target_region_a_xyz[:, 0] = torch.rand((b,)) * 0.1 + 0.15
+            target_region_a_xyz[:, 0] = torch.rand((b,)) * 0.1 + 0.075
             target_region_a_xyz[:, 1] = .5
             target_region_a_xyz[..., 2] = 1e-3
             self.goal_region[0].set_pose(
@@ -320,7 +436,7 @@ class RocobenchTest(BaseEnv):
             )
 
             target_region_b_xyz = torch.zeros((b, 3))
-            target_region_b_xyz[:, 0] = torch.rand((b,)) * 0.1 - 0.15
+            target_region_b_xyz[:, 0] = torch.rand((b,)) * 0.1 - 0.075
             target_region_b_xyz[:, 1] = -0.5
             target_region_b_xyz[..., 2] = 1e-3
             self.goal_region[1].set_pose(
