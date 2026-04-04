@@ -295,6 +295,7 @@ def to_sapien_pose(pose: Union[torch.Tensor, sapien.Pose, Pose]) -> sapien.Pose:
     """
     Maps several formats to a sapien Pose
     """
+    
     if isinstance(pose, sapien.Pose):
         return pose
     elif isinstance(pose, Pose):

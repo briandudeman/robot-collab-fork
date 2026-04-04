@@ -17,6 +17,8 @@ from mani_skill.utils.registration import register_env
 from mani_skill.utils.scene_builder.table_rocobench.scene_builder import RocoTableSceneBuilder
 from mani_skill.utils.structs.pose import Pose
 from mani_skill.utils.structs.types import GPUMemoryConfig, SimConfig
+from dm_control.utils.transformations import mat_to_quat, quat_to_euler, euler_to_quat 
+
 
 
 ACTION_SPACE="""
@@ -103,11 +105,11 @@ class RocobenchTest(BaseEnv):
     # only works for this specific environment frank emika panda robots, super icky but whatever
     def cube_in_range(self, obs, agent:str, cube:str):
         if (agent == "agentA"):
-            if (torch.cdist(obs["extra"][f"{cube}_pose"][0:1, 0:3], self.agentA.robot.pose.get_p()) < .82):
+            if (torch.cdist(obs["extra"][f"{cube}_position"], self.agentA.robot.pose.get_p()) < .82):
                 return True
             return False
         elif (agent == "agentB"):
-            if (torch.cdist(obs["extra"][f"{cube}_pose"][0:1, 0:3], self.agentB.robot.pose.get_p()) < .82):
+            if (torch.cdist(obs["extra"][f"{cube}_position"], self.agentB.robot.pose.get_p()) < .82):
                 return True
             return False
 
@@ -182,6 +184,7 @@ class RocobenchTest(BaseEnv):
         Think step-by-step about the task and others' response. Carefully check and correct them if they made a mistake. 
         Improve your plans if given [Environment Feedback].
         """
+        '''
         if include_response_instructions:
             agent_prompt += f"""
         When you respond, tell others about your goal and all constraints. Respond very concisely but informatively, and do not repeat what others have said.
@@ -190,6 +193,7 @@ class RocobenchTest(BaseEnv):
         End your response by either: 1) output PROCEED, if the plans require further discussion, or 2) If everyone has made proposals and got approved, output EXECUTE and the final plan, must strictly follow [Action Output Instruction]!
         In the plan, at least one robot should be acting, you can't all WAIT.
         """
+        '''
         # Example response #1:
         # [Reasons] I am {agent_name}, I must put blue_square on panel2, but I can't reach blue_square for now. Since Chad needs yellow_trapezoid, I propose to help Chad move it closer. What does everyone think?
         # [Proposal] PICK yellow_trapezoid PLACE panel3
@@ -386,18 +390,21 @@ class RocobenchTest(BaseEnv):
         success = (
             cubeB_in_goal * cubeA_in_goal
         )
-        
         obs = dict(
-            arm_b_tcp=self.agentB.tcp.pose.raw_pose,
-            arm_a_tcp=self.agentA.tcp.pose.raw_pose,
+            arm_a_tcp_position=self.agentA.tcp.pose.get_p(),
+            arm_b_tcp_position=self.agentB.tcp.pose.get_p(),
+            arm_a_tcp_euler=quat_to_euler(np.array(self.agentA.tcp.pose.get_q())[0]),
+            arm_b_tcp_euler=quat_to_euler(np.array(self.agentB.tcp.pose.get_q())[0]),
         )
 
         if "state" in self.obs_mode:
             obs.update(
                 cubeA_goal_region_pos=self.goal_region[0].pose.p,
                 cubeB_goal_region_pos=self.goal_region[1].pose.p,
-                cubeA_pose=self.cubeA.pose.raw_pose,
-                cubeB_pose=self.cubeB.pose.raw_pose,
+                cubeA_position=self.cubeA.pose.get_p(),
+                cubeB_position=self.cubeB.pose.get_p(),
+                cubeA_euler=quat_to_euler(np.array(self.cubeB.pose.get_q())[0]),
+                cubeB_euler=quat_to_euler(np.array(self.cubeB.pose.get_q())[0]),
                 is_agentB_grasping_cubeA=is_agentB_grasping_cubeA,
                 is_agentA_grasping_cubeB=is_agentA_grasping_cubeB,
                 is_agentB_grasping_cubeB=is_agentB_grasping_cubeB,

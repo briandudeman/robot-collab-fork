@@ -280,15 +280,9 @@ def pad_path(result1, result2):
 def follow_path_2_robot(result1, result2, result1_grip, result2_grip, refine_steps: int = 0):
     result1, result2 = pad_path(result1, result2)
     n_step = result1["position"].shape[0]
-    print("result1 shape", result1["position"].shape)
-    print("result2 shape", result2["position"].shape)
     for i in range(n_step + refine_steps):
         qpos1 = result1["position"][min(i, n_step - 1)]
         qpos2 = result2["position"][min(i, n_step - 1)]
-        print("qpos1: ", qpos1.shape)
-        print("qpos2: ", qpos2.shape)
-        print("result1_grip: ", result1_grip)
-        print("result2_grip: ", result2_grip)
         action = np.vstack((np.hstack([qpos1, result1_grip]), np.hstack([qpos2, result2_grip])))
         obs, reward, terminated, truncated, info = env.step(action)
         env.render()
@@ -372,6 +366,10 @@ print("resultB shape: ", resultB["position"].shape)
 
 
 follow_path_2_robot(resultB, resultA, plannerB_grip, plannerA_grip)
+print("agentA pose: ", env.unwrapped.agentA.robot.pose.get_p())
+print("agentA quat: ", env.unwrapped.agentA.robot.pose.get_q())
+print("cubeB position", env.unwrapped.cubeB.pose.get_p())
+
 
 print("grasp pose a", np.hstack((grasp_poseA.p, grasp_poseA.q)))
 print("grasp pose a", grasp_poseB)
