@@ -9,8 +9,10 @@ import torch
 
 from mplib.pymp import ArticulatedModel, PlanningWorld
 from transforms3d import quaternions
+from mani_skill.agents.base_agent import BaseAgent
 from mani_skill.examples.motionplanning.base_motionplanner.utils import compute_grasp_info_by_obb, get_actor_obb
 from mani_skill.envs.tasks.tabletop.rocobench_test import RocobenchTest
+from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.utils.structs.pose import to_sapien_pose
 from dm_control.utils.transformations import mat_to_quat, quat_to_euler, euler_to_quat 
 
@@ -163,6 +165,8 @@ reach_poseA = grasp_poseA * sapien.Pose([0, 0, -0.05])
 
 poseA = to_sapien_pose(reach_poseA)
 
+print("grasp pose", grasp_poseA.get_p(), grasp_poseA.get_q())
+print("reach pose", reach_poseA.get_p(), reach_poseA.get_q())
 reach_poseB = grasp_poseB * sapien.Pose([0, 0, -0.05])
 
 poseB = to_sapien_pose(reach_poseB)
@@ -170,46 +174,86 @@ poseB = to_sapien_pose(reach_poseB)
 
 PATH_PLAN_INSTRUCTION="""
 [Path Plan Instruction]
-Each <pose> is a list [x,y,z,q1,q2,q3] for gripper location (first 3 numbers) and rotation in euler angles (4 - 6th numbers) of the gripper above the object, ready to initiate a grasping motion.
-So each <pose> is the reach position and should be slightly above the target to allow for a safe and smooth picking-up motion, follow these steps to plan:
+Each <pose> is a list [x,y,z,e1,e2,e3] for gripper location (first 3 numbers) and rotation in euler angles (4 - 6th numbers) of the gripper above the object, ready to initiate a grasping motion.
+So each <pose> is the reach position and should be only slightly offset in the z direction (ex. 0.05) from the target position, not the gripper, to allow for a safe and smooth picking-up motion. Follow these steps to plan:
 1) Decide target location and rotation(e.g. the position and rotation of an object you want to pick), and your current gripper location and rotation. All rotations should be in euler, and will most likely be related to the rotation of the target object
-2) Return the <pose> representing the location and angle the gripper should be in to initiate grasp sequence of object.
+2) Return the <pose> representing the location and angle the gripper should be in to initiate grasp sequence of object, in this form on its own line: <pose>: [x,y,z,e1,e2,e3]
 """
 
+def prompt_llm_and_plan(planner: mplib.Planner, agent_name: str, agent: BaseAgent, env: BaseEnv, base_prompt: str):
+    
+    agent_prompt = env.get_agent_prompt(env.unwrapped.get_obs(), agent_name)
 
-user_prompt = env.get_agent_prompt(env.unwrapped.get_obs(), "agentA")
+    response = openai.ChatCompletion.create(
+                        model="gpt-4", 
+                        messages=[
+                            # {"role": "user", "content": ""},
+                            {"role": "system", "content": base_prompt+agent_prompt},                                    
+                        ],
+                        max_tokens=1024,
+                        temperature=0.0,
+                        )
 
-response = openai.ChatCompletion.create(
-                    model="gpt-4o-mini", 
-                    messages=[
-                        # {"role": "user", "content": ""},
-                        {"role": "system", "content": PATH_PLAN_INSTRUCTION+user_prompt},                                    
-                    ],
-                    max_tokens=1024,
-                    temperature=0.0,
-                    )
+    # eval is an itty bitty security risk for now, but whatever
+    print("prompt: ", base_prompt+agent_prompt)
+    print("agent response", response["choices"][0]["message"]["content"])
 
-# eval is an itty bitty security risk for now, but whatever
-print("agent prompt: ", PATH_PLAN_INSTRUCTION+user_prompt)
-print("agent response", response["choices"][0]["message"]["content"])
+    agent_generated_pose = 0
 
-'''
-agentA_pose = eval(response["choices"][0]["message"]["content"])
-print("agent generated pose", agentA_pose)
+    for line in response["choices"][0]["message"]["content"].splitlines():
+        if line[0:7] == "<pose>:":
+            agent_generated_pose = line[7:]
+    
+    agent_pose = eval(agent_generated_pose)
+    if isinstance(agent_pose, list) and len(agent_pose) == 6:
+        agent_pose = sapien.Pose(p=np.array(agent_pose[3:], dtype=np.float32), q=np.array(euler_to_quat(agent_pose[0:3]), dtype=np.float32))
+    else:
+        raise Exception("Agent did not generate pose of length 6")
+    
+    result = plan(planner, agent, agent_pose)
 
-print("regular pose", poseA)
-print(euler_to_quat(agentA_pose[3:6]))
-agentA_pose = sapien.Pose(p=np.array(agentA_pose[0:3], dtype=np.float32), q=np.array(euler_to_quat(agentA_pose[3:6]), dtype=np.float32))
+    if result["status"] != "Success":
+        result.pop("status")
+        result_feedback = "\n[Environment Feedback]" 
+        for k, v in result.items():
+            result_feedback = result_feedback + k + ": " + str(v) + "\n"
+        
+        response = openai.ChatCompletion.create(
+                        model="gpt-4", 
+                        messages=[
+                            # {"role": "user", "content": ""},
+                            {"role": "system", "content": base_prompt+agent_prompt+result_feedback},                                    
+                        ],
+                        max_tokens=1024,
+                        temperature=0.0,
+                        )
+        
+        agent_generated_pose = 0
 
-resultA = plan(plannerA, env.unwrapped.agentA, agentA_pose)
-print(resultA)
+        for line in response["choices"][0]["message"]["content"].splitlines():
+            if line[0:7] == "<pose>:":
+                agent_generated_pose = line[7:]
+        
+        agent_pose = eval(agent_generated_pose)
+        if isinstance(agent_pose, list) and len(agent_pose) == 6:
+            agent_pose = sapien.Pose(p=np.array(agent_pose[0:3], dtype=np.float32), q=np.array(euler_to_quat(agent_pose[3:]), dtype=np.float32))
+        else:
+            raise Exception("Agent did not generate pose of length 6")
+        
+        result = plan(planner, agent, agent_pose)
+        
+    
+    if result["status"] != "Success":
+        raise Exception("Agent failed to generate successful pose")
+    
+    return result
+
+        
+resultA = prompt_llm_and_plan(plannerA, "agentA", env.unwrapped.agentA, env.unwrapped, PATH_PLAN_INSTRUCTION)
+
 do_nothing_resultB = {"position": np.tile(env.unwrapped.agentB.robot.get_qpos()[:, :7].numpy(), (resultA["position"].shape[0], 1))}
 
-
-print("cubeB position", env.unwrapped.cubeB.pose.get_p())
-print(response["choices"][0]["message"]["content"])
 
 
 follow_path_2_robot(do_nothing_resultB, resultA, plannerB_grip, plannerA_grip)
 print(env.unwrapped.agentA.tcp.pose.get_p())
-'''

@@ -1,6 +1,7 @@
 from typing import Any, Tuple, Union
 
 import numpy as np
+import pprint
 import gymnasium as gym
 import sapien
 import torch
@@ -171,6 +172,11 @@ class RocobenchTest(BaseEnv):
             other_target = "targetB"
 
 
+        obs_lists_formatted = "" # the non-boolean values
+        for k, v in obs["extra"].items():
+            if v.dtype == torch.float32 or v.dtype == np.float64:
+                obs_lists_formatted = obs_lists_formatted + k + ": [" + ", ".join([str(x) for x in np.squeeze(v).tolist()]) + "]\n"
+
         agent_prompt = f"""
         `There are 2 cubes and 2 targets on the table. Each cube is close to the other cube's respective target, and each group of target-cube is infront of a robot arm.
         You are robot {agent_name} and on the other side of the table is {other_agent}, who you are collaborating with to move both cubes to their respective targets. The task is NOT done until all two cubes are sorted.
@@ -178,11 +184,14 @@ class RocobenchTest(BaseEnv):
         {target_locations}
         At current round: 
         {cube_states}
+        {obs_lists_formatted}
+        The euler rotation of both the cubes and your arm gripper follow this pattern: e1, e2, e3, where each angle is the clockwise angle from x, y, and z, respectively. Use this in your explanation.
+        The euler rotation of your gripper will NOT be the same as either the cube's rotation or the current gripper rotation. You should use the general formula of taking the e1 and e2 angles from the current grip rotation and the e3 angle from the target cube. Before deciding on a rotation, explain why you are getting each e1, e2, e3 angle of the rotation.
         Your goal is to place {other_cube} on {closest_target}, but the only cube(s) in distance are/is {graspables}
         {agent_state}
         Never forget you are {agent_name}! Never forget you can only reach {graspables}!
         Think step-by-step about the task and others' response. Carefully check and correct them if they made a mistake. 
-        Improve your plans if given [Environment Feedback].
+        Improve your plans if given [Environment Feedback]. Include your explanation for why you are choosing that pose.
         """
         '''
         if include_response_instructions:
@@ -403,7 +412,7 @@ class RocobenchTest(BaseEnv):
                 cubeB_goal_region_pos=self.goal_region[1].pose.p,
                 cubeA_position=self.cubeA.pose.get_p(),
                 cubeB_position=self.cubeB.pose.get_p(),
-                cubeA_euler=quat_to_euler(np.array(self.cubeB.pose.get_q())[0]),
+                cubeA_euler=quat_to_euler(np.array(self.cubeA.pose.get_q())[0]),
                 cubeB_euler=quat_to_euler(np.array(self.cubeB.pose.get_q())[0]),
                 is_agentB_grasping_cubeA=is_agentB_grasping_cubeA,
                 is_agentA_grasping_cubeB=is_agentA_grasping_cubeB,
