@@ -65,7 +65,6 @@ class MultiAgent(BaseAgent, Generic[T]):
         """
         if isinstance(action, torch.Tensor):
             for i, agent_tuple in enumerate(self.agents_dict.items()):
-                print(torch.sum(torch.isnan(action[i])) == 0, "\n")
                 if (torch.sum(torch.isnan(action[i])) == 0): # accounting for the 1 appended at end of action
                     agent_tuple[1].set_action(torch.reshape(action[i], (1, -1)))
         elif isinstance(action, dict):    

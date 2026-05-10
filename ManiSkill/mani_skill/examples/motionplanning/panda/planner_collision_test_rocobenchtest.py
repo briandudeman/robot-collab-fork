@@ -19,37 +19,6 @@ from mani_skill.examples.motionplanning.base_motionplanner.utils import (
     compute_grasp_info_by_obb, get_actor_obb)
 
 
-env_kwargs = dict(
-    obs_mode="none",
-    reward_mode=None,
-    control_mode="pd_joint_pos",
-    render_mode="human",
-    sensor_configs=dict(shader_pack="default"),
-    human_render_camera_configs=dict(shader_pack="default"),
-    viewer_camera_configs=dict(shader_pack="default"),
-    num_envs=1,
-    sim_backend="auto",
-    render_backend="cpu",
-    enable_shadow=True,
-    parallel_in_single_scene=False,
-)
-
-env = gym.make("RocobenchTest", **env_kwargs)
-'''env = RecordEpisode(
-    env,
-    output_dir="ManiSkill/mani_skill/examples/motionplanning/panda/rocobenchtest_vids",
-    save_trajectory=False, save_video=True,
-    source_type="motionplanning",
-    source_desc="official motion planning solution from ManiSkill contributors",
-    video_fps=30,
-    record_reward=False,
-    save_on_reset=True
-)'''
-#viewer = env.render()
-#viewer.paused = True
-env.reset()
-
-env.render()
 
 class RocobenchTestPandaArmMotionPlanner(PandaArmMotionPlanningSolver):
     OPEN = 1
@@ -105,9 +74,6 @@ class RocobenchTestPandaArmMotionPlanner(PandaArmMotionPlanningSolver):
             self.grasp_pose_visual.set_pose(target)
 
 
-OPEN = 1
-CLOSED = -1
-
 
 def build_two_finger_gripper_grasp_pose_visual(scene: ManiSkillScene):
     builder = scene.create_actor_builder()
@@ -158,7 +124,7 @@ def build_two_finger_gripper_grasp_pose_visual(scene: ManiSkillScene):
     return grasp_pose_visual
 
 
-def open_gripper(agent, planner, env, agent_id, other_agents_grip, t=6, gripper_state=None):
+def open_gripper(agent, planner, env, agent_id, other_agents_grip, OPEN, CLOSED, t=6, gripper_state=None):
     if gripper_state is None:
         gripper_state = OPEN
     qpos = agent.robot.get_qpos()[0, : len(planner.joint_vel_limits)].cpu().numpy()
@@ -178,7 +144,7 @@ def open_gripper(agent, planner, env, agent_id, other_agents_grip, t=6, gripper_
     return obs, reward, terminated, truncated, info, gripper_state
 
 
-def close_gripper(agent, planner, env, agent_id, other_agents_grip, t=6, gripper_state=None):
+def close_gripper(agent, planner, env, agent_id, other_agents_grip, OPEN, CLOSED, t=6, gripper_state=None):
     if gripper_state is None:
         gripper_state = CLOSED
     qpos = agent.robot.get_qpos()[0, : len(planner.joint_vel_limits)].cpu().numpy()
@@ -192,54 +158,12 @@ def close_gripper(agent, planner, env, agent_id, other_agents_grip, t=6, gripper
         diff_len = other_robots_qpos.shape[1] - qpos.shape[0]
         temp = np.vstack((qpos.reshape((qpos.shape[0], 1)), np.tile(gripper_state, (diff_len, 1))))
         temp = temp.reshape((temp.shape[0], 1)).T
-        action = np.insert(other_robots_qpos, agent_id, temp, axis=0) # ERROR: other qpos is same as temp
+        action = np.insert(other_robots_qpos, agent_id, temp, axis=0)
         obs, reward, terminated, truncated, info = env.step(action)
         env.unwrapped.render_human()
     return obs, reward, terminated, truncated, info, gripper_state
 
-
-
-move_group = "panda_hand_tcp"
-link_namesA = [link.get_name() for link in env.unwrapped.agentA.robot.get_links()]
-joint_namesA = [joint.get_name() for joint in env.unwrapped.agentA.robot.get_active_joints()]
-plannerA_base_pose = to_sapien_pose(env.unwrapped.agentA.robot.pose)
-
-link_namesB = [link.get_name() for link in env.unwrapped.agentB.robot.get_links()]
-joint_namesB = [joint.get_name() for joint in env.unwrapped.agentB.robot.get_active_joints()]
-plannerB_base_pose = to_sapien_pose(env.unwrapped.agentB.robot.pose)
-
-
-plannerA = mplib.Planner(
-    urdf=env.unwrapped.agentA.urdf_path,
-    srdf=env.unwrapped.agentA.urdf_path.replace(".urdf", ".srdf"),
-    user_link_names=link_namesA,
-    user_joint_names=joint_namesA,
-    move_group=move_group)
-
-plannerA_grip = OPEN
-
-plannerB = mplib.Planner(
-    urdf=env.unwrapped.agentB.urdf_path,
-    srdf=env.unwrapped.agentB.urdf_path.replace(".urdf", ".srdf"),
-    user_link_names=link_namesB,
-    user_joint_names=joint_namesB,
-    move_group=move_group)
-
-plannerB_grip = OPEN
-
-
-plannerA.set_base_pose(np.hstack([plannerA_base_pose.p, plannerA_base_pose.q]))
-plannerA.joint_vel_limits = np.asarray(plannerA.joint_vel_limits) * 0.9
-plannerA.joint_acc_limits = np.asarray(plannerA.joint_acc_limits) * 0.9
-
-
-plannerB.set_base_pose(np.hstack([plannerB_base_pose.p, plannerB_base_pose.q]))
-plannerB.joint_vel_limits = np.asarray(plannerB.joint_vel_limits) * 0.9
-plannerB.joint_acc_limits = np.asarray(plannerB.joint_acc_limits) * 0.9
-
-
-
-def plan(planner, agent, end_pose):
+def plan(planner, agent, env, end_pose):
     result = planner.plan_screw(
         np.concatenate([end_pose.p, end_pose.q]),
         agent.robot.get_qpos().cpu().numpy()[0],
@@ -268,6 +192,8 @@ def print_collisions(collisions):
             
             
 def pad_path(result1, result2):
+    print("result1 position", result1["position"])
+    print("result2 position", result2["position"])
     result1_len = result1["position"].shape[0]
     result2_len = result2["position"].shape[0]
     max_len = max(result1_len, result2_len)
@@ -277,7 +203,7 @@ def pad_path(result1, result2):
         result2["position"] = np.vstack((result2["position"], np.tile(result2["position"][-1], (max_len - result2_len, 1))))
     return result1, result2
 
-def follow_path_2_robot(result1, result2, result1_grip, result2_grip, refine_steps: int = 0):
+def follow_path_2_robot(env, result1, result2, result1_grip, result2_grip, refine_steps: int = 0):
     result1, result2 = pad_path(result1, result2)
     n_step = result1["position"].shape[0]
     for i in range(n_step + refine_steps):
@@ -290,177 +216,253 @@ def follow_path_2_robot(result1, result2, result1_grip, result2_grip, refine_ste
 
 
 
+if __name__ == "__main__":
 
-move_group = "panda_hand_tcp"
-agentB_link_names = [link.get_name() for link in env.unwrapped.agentB.robot.get_links()]
-agentB_joint_names = [joint.get_name() for joint in env.unwrapped.agentB.robot.get_active_joints()]
-agentB_articulation = ArticulatedModel(
-            env.unwrapped.agentB.urdf_path,
-            env.unwrapped.agentB.urdf_path.replace(".urdf", ".srdf"),
-            [0, 0, -9.81],
-            agentB_link_names,
-            agentB_joint_names,
-            False,
-            False,
-        )
+    env_kwargs = dict(
+        obs_mode="none",
+        reward_mode=None,
+        control_mode="pd_joint_pos",
+        render_mode="human",
+        sensor_configs=dict(shader_pack="default"),
+        human_render_camera_configs=dict(shader_pack="default"),
+        viewer_camera_configs=dict(shader_pack="default"),
+        num_envs=1,
+        sim_backend="auto",
+        render_backend="cpu",
+        enable_shadow=True,
+        parallel_in_single_scene=False,
+    )
 
+    env = gym.make("RocobenchTest", **env_kwargs)
+    '''env = RecordEpisode(
+        env,
+        output_dir="ManiSkill/mani_skill/examples/motionplanning/panda/rocobenchtest_vids",
+        save_trajectory=False, save_video=True,
+        source_type="motionplanning",
+        source_desc="official motion planning solution from ManiSkill contributors",
+        video_fps=30,
+        record_reward=False,
+        save_on_reset=True
+    )'''
+    #viewer = env.render()
+    #viewer.paused = True
+    env.reset()
 
-FINGER_LENGTH = 0.025
+    env.render()
+        
+    OPEN = 1
+    CLOSED = -1
 
-# retrieves the object oriented bounding box (trimesh box object)
-obbB = get_actor_obb(env.unwrapped.cubeB)
-obbA = get_actor_obb(env.unwrapped.cubeA)
+    move_group = "panda_hand_tcp"
+    link_namesA = [link.get_name() for link in env.unwrapped.agentA.robot.get_links()]
+    joint_namesA = [joint.get_name() for joint in env.unwrapped.agentA.robot.get_active_joints()]
+    plannerA_base_pose = to_sapien_pose(env.unwrapped.agentA.robot.pose)
 
-approaching = np.array([0, 0, -1])
-# get transformation matrix of the tcp pose, is default batched and on torch
-target_closingA = env.unwrapped.agentA.tcp.pose.to_transformation_matrix()[0, :3, 1].cpu().numpy()
-target_closingB = env.unwrapped.agentB.tcp.pose.to_transformation_matrix()[0, :3, 1].cpu().numpy()
-# we can build a simple grasp pose using this information for Panda
-grasp_infoA = compute_grasp_info_by_obb(
-    obbB,
-    approaching=approaching,
-    target_closing=target_closingA,
-    depth=FINGER_LENGTH,
-)
-grasp_infoB = compute_grasp_info_by_obb(
-    obbA,
-    approaching=approaching,
-    target_closing=target_closingB,
-    depth=FINGER_LENGTH,
-)
-
-closingA, centerA = grasp_infoA["closing"], grasp_infoA["center"]
-grasp_poseA = env.unwrapped.agentA.build_grasp_pose(approaching, closingA, env.unwrapped.cubeB.pose.sp.p)
-
-closingB, centerB = grasp_infoB["closing"], grasp_infoB["center"]
-grasp_poseB = env.unwrapped.agentB.build_grasp_pose(approaching, closingB, env.unwrapped.cubeA.pose.sp.p)
-
-
-# -------------------------------------------------------------------------- #
-# Reach
-# -------------------------------------------------------------------------- #
-reach_poseA = grasp_poseA * sapien.Pose([0, 0, -0.05])
-
-poseA = to_sapien_pose(reach_poseA)
-
-reach_poseB = grasp_poseB * sapien.Pose([0, 0, -0.05])
-
-poseB = to_sapien_pose(reach_poseB)
-
-middle_poseA = sapien.Pose(env.unwrapped.middle_goal.pose.sp.p + [0.1, 0, 0], grasp_poseA.q)
-middle_poseB = sapien.Pose(env.unwrapped.middle_goal.pose.sp.p + [-0.1, 0, 0], grasp_poseB.q)
-
-intermediate_poseA = sapien.Pose(env.unwrapped.middle_goal.pose.sp.p + [0, .2, .2], grasp_poseA.q)
-intermediate_poseB = sapien.Pose(env.unwrapped.middle_goal.pose.sp.p + [0, -.2, .2], grasp_poseB.q)
-
-goal_poseA = sapien.Pose(env.unwrapped.goal_region[0].pose.sp.p, grasp_poseA.q)
-goal_poseB = sapien.Pose(env.unwrapped.goal_region[1].pose.sp.p, grasp_poseB.q)
-
-resultA = plan(plannerA, env.unwrapped.agentA, poseA)
-resultB = plan(plannerB, env.unwrapped.agentB, poseB)
-
-print("resultA shape: ", resultA["position"].shape)
-print("resultB shape: ", resultB["position"].shape)
-
-#resultB = np.hstack((env.unwrapped.agentB.robot.pose.p, env.unwrapped.agentB.robot.pose.q))
+    link_namesB = [link.get_name() for link in env.unwrapped.agentB.robot.get_links()]
+    joint_namesB = [joint.get_name() for joint in env.unwrapped.agentB.robot.get_active_joints()]
+    plannerB_base_pose = to_sapien_pose(env.unwrapped.agentB.robot.pose)
 
 
-follow_path_2_robot(resultB, resultA, plannerB_grip, plannerA_grip)
-print("agentA pose: ", env.unwrapped.agentA.robot.pose.get_p())
-print("agentA quat: ", env.unwrapped.agentA.robot.pose.get_q())
-print("cubeB position", env.unwrapped.cubeB.pose.get_p())
+    plannerA = mplib.Planner(
+        urdf=env.unwrapped.agentA.urdf_path,
+        srdf=env.unwrapped.agentA.urdf_path.replace(".urdf", ".srdf"),
+        user_link_names=link_namesA,
+        user_joint_names=joint_namesA,
+        move_group=move_group)
+
+    plannerA_grip = OPEN
+
+    plannerB = mplib.Planner(
+        urdf=env.unwrapped.agentB.urdf_path,
+        srdf=env.unwrapped.agentB.urdf_path.replace(".urdf", ".srdf"),
+        user_link_names=link_namesB,
+        user_joint_names=joint_namesB,
+        move_group=move_group)
+
+    plannerB_grip = OPEN
 
 
-print("grasp pose a", np.hstack((grasp_poseA.p, grasp_poseA.q)))
-print("grasp pose a", grasp_poseB)
+    plannerA.set_base_pose(np.hstack([plannerA_base_pose.p, plannerA_base_pose.q]))
+    plannerA.joint_vel_limits = np.asarray(plannerA.joint_vel_limits) * 0.9
+    plannerA.joint_acc_limits = np.asarray(plannerA.joint_acc_limits) * 0.9
 
-grasp_resultA = plan(plannerA, env.unwrapped.agentA, grasp_poseA)
-grasp_resultB = plan(plannerB, env.unwrapped.agentB, grasp_poseB)
 
-print("grasp plan shape:", grasp_resultA["position"].shape)
-print(grasp_resultB["position"].shape)
-
-follow_path_2_robot(grasp_resultB, grasp_resultA, plannerB_grip, plannerA_grip)
-
-_, _, _, _, _, plannerA_grip = close_gripper(env.agent.agents[1], plannerA, env, 1, plannerB_grip)
-_, _, _, _, _, plannerB_grip = close_gripper(env.agent.agents[0], plannerB, env, 0, plannerA_grip)
-
-up_resultA = plan(plannerA, env.unwrapped.agentA, poseA)
-up_resultB = plan(plannerB, env.unwrapped.agentB, poseB)
-follow_path_2_robot(up_resultB, up_resultA, plannerB_grip, plannerA_grip)
-
-middle_resultA = plan(plannerA, env.unwrapped.agentA, middle_poseA)
-middle_resultB = plan(plannerB, env.unwrapped.agentB, middle_poseB)
-follow_path_2_robot(middle_resultB, middle_resultA, plannerB_grip, plannerA_grip)
-
-_, _, _, _, _, plannerA_grip = open_gripper(env.agent.agents[1], plannerA, env, 1, plannerB_grip)
-_, _, _, _, _, plannerB_grip = open_gripper(env.agent.agents[0], plannerB, env, 0, plannerA_grip)
-
-intermediate_resultA = plan(plannerA, env.unwrapped.agentA, intermediate_poseA)
-intermediate_resultB = plan(plannerB, env.unwrapped.agentB, intermediate_poseB)
-
-follow_path_2_robot(intermediate_resultB, intermediate_resultA, plannerB_grip, plannerA_grip)
-
-grasp_pose_oppA = env.agentA.build_grasp_pose(approaching, closingA, env.cubeA.pose.sp.p)
-grasp_pose_oppB = env.agentB.build_grasp_pose(approaching, closingB, env.cubeB.pose.sp.p)
-
-reach_pose_oppA = grasp_pose_oppA * sapien.Pose([0, 0, -0.05])
-reach_pose_oppB = grasp_pose_oppB * sapien.Pose([0, 0, -0.05])
+    plannerB.set_base_pose(np.hstack([plannerB_base_pose.p, plannerB_base_pose.q]))
+    plannerB.joint_vel_limits = np.asarray(plannerB.joint_vel_limits) * 0.9
+    plannerB.joint_acc_limits = np.asarray(plannerB.joint_acc_limits) * 0.9
 
 
 
-opp_reach_resultA = plan(plannerA, env.unwrapped.agentA, reach_pose_oppA)
-opp_reach_resultB = plan(plannerB, env.unwrapped.agentB, reach_pose_oppB)
-
-do_nothing_resultB = {"position": np.tile(env.unwrapped.agentB.robot.get_qpos()[:, :7].numpy(), (resultA["position"].shape[0], 1))}
-
-
-follow_path_2_robot(do_nothing_resultB, opp_reach_resultA, plannerB_grip, plannerA_grip)
-
-opp_grasp_resultA = plan(plannerA, env.unwrapped.agentA, grasp_pose_oppA)
-
-follow_path_2_robot(do_nothing_resultB, opp_grasp_resultA, plannerB_grip, plannerA_grip)
-
-
-_, _, _, _, _, plannerA_grip = close_gripper(env.agent.agents[1], plannerA, env, 1, plannerB_grip)
-
-up_opp_reach_resultA = plan(plannerA, env.unwrapped.agentA, reach_pose_oppA)
-follow_path_2_robot(do_nothing_resultB, up_opp_reach_resultA, plannerB_grip, plannerA_grip)
-
-goal_resultA = plan(plannerA, env.unwrapped.agentA, goal_poseA)
-follow_path_2_robot(opp_reach_resultB, goal_resultA, plannerB_grip, plannerA_grip)
-
-# planner a completes
-_, _, _, _, _, plannerA_grip = open_gripper(env.agent.agents[1], plannerA, env, 1, plannerB_grip)
-
-do_nothing_resultA = {"position": np.tile(env.unwrapped.agentA.robot.get_qpos()[:, :7].numpy(), (resultB["position"].shape[0], 1))}
-
-opp_grasp_resultB = plan(plannerB, env.unwrapped.agentB, grasp_pose_oppB)
-
-follow_path_2_robot(opp_grasp_resultB, do_nothing_resultA, plannerB_grip, plannerA_grip)
-
-_, _, _, _, _, plannerB_grip = close_gripper(env.agent.agents[0], plannerB, env, 0, plannerA_grip)
-
-up_opp_reach_resultB = plan(plannerB, env.unwrapped.agentB, reach_pose_oppB)
-
-follow_path_2_robot(up_opp_reach_resultB, do_nothing_resultA, plannerB_grip, plannerA_grip)
+    move_group = "panda_hand_tcp"
+    agentB_link_names = [link.get_name() for link in env.unwrapped.agentB.robot.get_links()]
+    agentB_joint_names = [joint.get_name() for joint in env.unwrapped.agentB.robot.get_active_joints()]
+    agentB_articulation = ArticulatedModel(
+                env.unwrapped.agentB.urdf_path,
+                env.unwrapped.agentB.urdf_path.replace(".urdf", ".srdf"),
+                [0, 0, -9.81],
+                agentB_link_names,
+                agentB_joint_names,
+                False,
+                False,
+            )
 
 
-goal_resultB = plan(plannerB, env.unwrapped.agentB, goal_poseB)
+    FINGER_LENGTH = 0.025
 
-follow_path_2_robot(goal_resultB, do_nothing_resultA, plannerB_grip, plannerA_grip)
+    # retrieves the object oriented bounding box (trimesh box object)
+    obbB = get_actor_obb(env.unwrapped.cubeB)
+    obbA = get_actor_obb(env.unwrapped.cubeA)
 
-_, _, _, _, _, plannerB_grip = open_gripper(env.agent.agents[0], plannerB, env, 0, plannerA_grip)
+    approaching = np.array([0, 0, -1])
+    # get transformation matrix of the tcp pose, is default batched and on torch
+    target_closingA = env.unwrapped.agentA.tcp.pose.to_transformation_matrix()[0, :3, 1].cpu().numpy()
+    target_closingB = env.unwrapped.agentB.tcp.pose.to_transformation_matrix()[0, :3, 1].cpu().numpy()
+    # we can build a simple grasp pose using this information for Panda
+    grasp_infoA = compute_grasp_info_by_obb(
+        obbB,
+        approaching=approaching,
+        target_closing=target_closingA,
+        depth=FINGER_LENGTH,
+    )
+    grasp_infoB = compute_grasp_info_by_obb(
+        obbA,
+        approaching=approaching,
+        target_closing=target_closingB,
+        depth=FINGER_LENGTH,
+    )
 
-'''
+    closingA, centerA = grasp_infoA["closing"], grasp_infoA["center"]
+    grasp_poseA = env.unwrapped.agentA.build_grasp_pose(approaching, closingA, env.unwrapped.cubeB.pose.sp.p)
 
-# must be after plan, or it will give an error
-plannerA.planning_world.add_articulation(plannerB.robot, "agentB")
-plannerB.planning_world.add_articulation(plannerA.robot, "agentA")
+    closingB, centerB = grasp_infoB["closing"], grasp_infoB["center"]
+    grasp_poseB = env.unwrapped.agentB.build_grasp_pose(approaching, closingB, env.unwrapped.cubeA.pose.sp.p)
 
 
-env_collision_qpos = np.array(np.concatenate((pose.p, pose.q), axis=0), dtype=np.float64)
-print_collisions(plannerA.planning_world.collide_full())
-#obs, reward, terminated, truncated, info = follow_path_2_robot(resultA, resultB)
-# planner.move_to_pose_with_screw(reach_pose)
-'''
+    # -------------------------------------------------------------------------- #
+    # Reach
+    # -------------------------------------------------------------------------- #
+    reach_poseA = grasp_poseA * sapien.Pose([0, 0, -0.05])
+
+    poseA = to_sapien_pose(reach_poseA)
+
+    reach_poseB = grasp_poseB * sapien.Pose([0, 0, -0.05])
+
+    poseB = to_sapien_pose(reach_poseB)
+
+    middle_poseA = sapien.Pose(env.unwrapped.middle_goal.pose.sp.p + [0.1, 0, 0], grasp_poseA.q)
+    middle_poseB = sapien.Pose(env.unwrapped.middle_goal.pose.sp.p + [-0.1, 0, 0], grasp_poseB.q)
+
+    intermediate_poseA = sapien.Pose(env.unwrapped.middle_goal.pose.sp.p + [0, .2, .2], grasp_poseA.q)
+    intermediate_poseB = sapien.Pose(env.unwrapped.middle_goal.pose.sp.p + [0, -.2, .2], grasp_poseB.q)
+
+    goal_poseA = sapien.Pose(env.unwrapped.goal_region[0].pose.sp.p, grasp_poseA.q)
+    goal_poseB = sapien.Pose(env.unwrapped.goal_region[1].pose.sp.p, grasp_poseB.q)
+
+    resultA = plan(plannerA, env.unwrapped.agentA, env.unwrapped, poseA)
+    resultB = plan(plannerB, env.unwrapped.agentB, env.unwrapped, poseB)
+
+    print("resultA shape: ", resultA["position"].shape)
+    print("resultB shape: ", resultB["position"].shape)
+
+    #resultB = np.hstack((env.unwrapped.agentB.robot.pose.p, env.unwrapped.agentB.robot.pose.q))
+
+
+    follow_path_2_robot(env.unwrapped, resultB, resultA, plannerB_grip, plannerA_grip)
+    print("agentA pose: ", env.unwrapped.agentA.robot.pose.get_p())
+    print("agentA quat: ", env.unwrapped.agentA.robot.pose.get_q())
+    print("cubeB position", env.unwrapped.cubeB.pose.get_p())
+
+
+    print("grasp pose a", np.hstack((grasp_poseA.p, grasp_poseA.q)))
+    print("grasp pose a", grasp_poseB)
+
+    grasp_resultA = plan(plannerA, env.unwrapped.agentA, env.unwrapped, grasp_poseA)
+    grasp_resultB = plan(plannerB, env.unwrapped.agentB, env.unwrapped, grasp_poseB)
+
+    print("grasp plan shape:", grasp_resultA["position"].shape)
+    print(grasp_resultB["position"].shape)
+
+    follow_path_2_robot(env.unwrapped, grasp_resultB, grasp_resultA, plannerB_grip, plannerA_grip)
+
+    _, _, _, _, _, plannerA_grip = close_gripper(env.agent.agents[1], plannerA, env, 1, plannerB_grip, OPEN, CLOSED)
+    _, _, _, _, _, plannerB_grip = close_gripper(env.agent.agents[0], plannerB, env, 0, plannerA_grip, OPEN, CLOSED)
+
+    up_resultA = plan(plannerA, env.unwrapped.agentA, env.unwrapped, poseA)
+    up_resultB = plan(plannerB, env.unwrapped.agentB, env.unwrapped, poseB)
+    follow_path_2_robot(env.unwrapped, up_resultB, up_resultA, plannerB_grip, plannerA_grip)
+
+    middle_resultA = plan(plannerA, env.unwrapped.agentA, env.unwrapped, middle_poseA)
+    middle_resultB = plan(plannerB, env.unwrapped.agentB, env.unwrapped, middle_poseB)
+    follow_path_2_robot(env.unwrapped, middle_resultB, middle_resultA, plannerB_grip, plannerA_grip)
+
+    _, _, _, _, _, plannerA_grip = open_gripper(env.agent.agents[1], plannerA, env, 1, plannerB_grip, OPEN, CLOSED)
+    _, _, _, _, _, plannerB_grip = open_gripper(env.agent.agents[0], plannerB, env, 0, plannerA_grip, OPEN, CLOSED)
+
+    intermediate_resultA = plan(plannerA, env.unwrapped.agentA, env.unwrapped, intermediate_poseA)
+    intermediate_resultB = plan(plannerB, env.unwrapped.agentB, env.unwrapped, intermediate_poseB)
+
+    follow_path_2_robot(env.unwrapped, intermediate_resultB, intermediate_resultA, plannerB_grip, plannerA_grip)
+
+    grasp_pose_oppA = env.agentA.build_grasp_pose(approaching, closingA, env.cubeA.pose.sp.p)
+    grasp_pose_oppB = env.agentB.build_grasp_pose(approaching, closingB, env.cubeB.pose.sp.p)
+
+    reach_pose_oppA = grasp_pose_oppA * sapien.Pose([0, 0, -0.05])
+    reach_pose_oppB = grasp_pose_oppB * sapien.Pose([0, 0, -0.05])
+
+
+
+    opp_reach_resultA = plan(plannerA, env.unwrapped.agentA, env.unwrapped, reach_pose_oppA)
+    opp_reach_resultB = plan(plannerB, env.unwrapped.agentB, env.unwrapped, reach_pose_oppB)
+
+    do_nothing_resultB = {"position": np.tile(env.unwrapped.agentB.robot.get_qpos()[:, :7].numpy(), (resultA["position"].shape[0], 1))}
+
+
+    follow_path_2_robot(env.unwrapped, do_nothing_resultB, opp_reach_resultA, plannerB_grip, plannerA_grip)
+
+    opp_grasp_resultA = plan(plannerA, env.unwrapped.agentA, env.unwrapped, grasp_pose_oppA)
+
+    follow_path_2_robot(env.unwrapped, do_nothing_resultB, opp_grasp_resultA, plannerB_grip, plannerA_grip)
+
+
+    _, _, _, _, _, plannerA_grip = close_gripper(env.agent.agents[1], plannerA, env, 1, plannerB_grip, OPEN, CLOSED)
+
+    up_opp_reach_resultA = plan(plannerA, env.unwrapped.agentA, env.unwrapped, reach_pose_oppA)
+    follow_path_2_robot(env.unwrapped, do_nothing_resultB, up_opp_reach_resultA, plannerB_grip, plannerA_grip)
+
+    goal_resultA = plan(plannerA, env.unwrapped.agentA, env.unwrapped, goal_poseA)
+    follow_path_2_robot(env.unwrapped, opp_reach_resultB, goal_resultA, plannerB_grip, plannerA_grip)
+
+    # planner a completes
+    _, _, _, _, _, plannerA_grip = open_gripper(env.agent.agents[1], plannerA, env, 1, plannerB_grip, OPEN, CLOSED)
+
+    do_nothing_resultA = {"position": np.tile(env.unwrapped.agentA.robot.get_qpos()[:, :7].numpy(), (resultB["position"].shape[0], 1))}
+
+    opp_grasp_resultB = plan(plannerB, env.unwrapped.agentB, env.unwrapped, grasp_pose_oppB)
+
+    follow_path_2_robot(env.unwrapped, opp_grasp_resultB, do_nothing_resultA, plannerB_grip, plannerA_grip)
+
+    _, _, _, _, _, plannerB_grip = close_gripper(env.agent.agents[0], plannerB, env, 0, plannerA_grip, OPEN, CLOSED)
+
+    up_opp_reach_resultB = plan(plannerB, env.unwrapped.agentB, env.unwrapped, reach_pose_oppB)
+
+    follow_path_2_robot(env.unwrapped, up_opp_reach_resultB, do_nothing_resultA, plannerB_grip, plannerA_grip)
+
+
+    goal_resultB = plan(plannerB, env.unwrapped.agentB, env.unwrapped, goal_poseB)
+
+    follow_path_2_robot(env.unwrapped, goal_resultB, do_nothing_resultA, plannerB_grip, plannerA_grip)
+
+    _, _, _, _, _, plannerB_grip = open_gripper(env.agent.agents[0], plannerB, env, 0, plannerA_grip, OPEN, CLOSED)
+
+    '''
+
+    # must be after plan, or it will give an error
+    plannerA.planning_world.add_articulation(plannerB.robot, "agentB")
+    plannerB.planning_world.add_articulation(plannerA.robot, "agentA")
+
+
+    env_collision_qpos = np.array(np.concatenate((pose.p, pose.q), axis=0), dtype=np.float64)
+    print_collisions(plannerA.planning_world.collide_full())
+    #obs, reward, terminated, truncated, info = follow_path_2_robot(resultA, resultB)
+    # planner.move_to_pose_with_screw(reach_pose)
+    '''

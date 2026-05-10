@@ -1,5 +1,6 @@
 data/
 openai_key.json
+openai_key2.json
 claude_key.json
 .DS_Store
 

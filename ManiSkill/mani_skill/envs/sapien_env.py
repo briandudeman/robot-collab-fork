@@ -853,7 +853,6 @@ class BaseEnv(gym.Env):
     # Reset
     # -------------------------------------------------------------------------- #
     def reset(self, seed: Union[None, int, list[int]] = None, options: Union[None, dict] = None):
-        print("base env reseting")
         """Reset the ManiSkill environment with given seed(s) and options. Typically seed is either None (for unseeded reset) or an int (seeded reset).
         For GPU parallelized environments you can also pass a list of seeds for each parallel environment to seed each one separately.
 
@@ -893,7 +892,6 @@ class BaseEnv(gym.Env):
         if options is None:
             options = dict()
         reconfigure = options.get("reconfigure", False)
-        print("reconfigure: ", reconfigure)
         reconfigure = reconfigure or (
             self._reconfig_counter == 0 and self.reconfiguration_freq != 0
         )
@@ -969,7 +967,6 @@ class BaseEnv(gym.Env):
 
         info = self.get_info()
         if reset_to_env_states_obs is None:
-            print("info: ", info)
             obs = self.get_obs(info)
         else:
             obs = self._last_obs
@@ -1097,7 +1094,6 @@ class BaseEnv(gym.Env):
                 ), "Received a dictionary for an action but there are not multiple robots in the environment"
                 # assume this is a multi-agent action
                 action = common.to_tensor(action, device=self.device)
-                print("action dict?: ", action)
                 for k, a in action.items():
                     if a.shape == self._orig_single_action_space[k].shape:
                         action_is_unbatched = True

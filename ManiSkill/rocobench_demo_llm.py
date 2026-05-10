@@ -5,6 +5,7 @@ import sapien
 import openai
 import os, json
 import torch
+import re
 
 
 from mplib.pymp import ArticulatedModel, PlanningWorld
@@ -14,50 +15,13 @@ from mani_skill.examples.motionplanning.base_motionplanner.utils import compute_
 from mani_skill.envs.tasks.tabletop.rocobench_test import RocobenchTest
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.utils.structs.pose import to_sapien_pose
+from mani_skill.examples.motionplanning.panda.planner_collision_test_rocobenchtest import plan, close_gripper, open_gripper, pad_path, follow_path_2_robot
 from dm_control.utils.transformations import mat_to_quat, quat_to_euler, euler_to_quat 
 
 
 
 OPEN = 1
 CLOSED = -1
-
-def plan(planner, agent, end_pose):
-    result = planner.plan_screw(
-        np.concatenate([end_pose.p, end_pose.q]),
-        agent.robot.get_qpos().cpu().numpy()[0],
-        time_step=env.unwrapped.control_timestep,
-        use_point_cloud=False)
-    if result["status"] != "Success":
-        result = planner.plan_screw(
-            np.concatenate([end_pose.p, end_pose.q]),
-            agent.robot.get_qpos().cpu().numpy()[0],
-            time_step=env.unwrapped.control_timestep,
-            use_point_cloud=False)
-    
-    
-    return result
-
-def pad_path(result1, result2):
-    result1_len = result1["position"].shape[0]
-    result2_len = result2["position"].shape[0]
-    max_len = max(result1_len, result2_len)
-    if result1_len < max_len:
-        result1["position"] = np.vstack((result1["position"], np.tile(result1["position"][-1], (max_len - result1_len, 1))))
-    elif result2_len < max_len:
-        result2["position"] = np.vstack((result2["position"], np.tile(result2["position"][-1], (max_len - result2_len, 1))))
-    return result1, result2
-
-def follow_path_2_robot(result1, result2, result1_grip, result2_grip, refine_steps: int = 0):
-    result1, result2 = pad_path(result1, result2)
-    n_step = result1["position"].shape[0]
-    for i in range(n_step + refine_steps):
-        qpos1 = result1["position"][min(i, n_step - 1)]
-        qpos2 = result2["position"][min(i, n_step - 1)]
-        action = np.vstack((np.hstack([qpos1, result1_grip]), np.hstack([qpos2, result2_grip])))
-        obs, reward, terminated, truncated, info = env.step(action)
-        env.render()
-    return obs, reward, terminated, truncated, info
-
 
 
 
@@ -173,50 +137,119 @@ poseB = to_sapien_pose(reach_poseB)
 
 
 PATH_PLAN_INSTRUCTION="""
-[Path Plan Instruction]
-Each <pose> is a list [x,y,z,e1,e2,e3] for gripper location (first 3 numbers) and rotation in euler angles (4 - 6th numbers) of the gripper above the object, ready to initiate a grasping motion.
-So each <pose> is the reach position and should be only slightly offset in the z direction (ex. 0.05) from the target position, not the gripper, to allow for a safe and smooth picking-up motion. Follow these steps to plan:
-1) Decide target location and rotation(e.g. the position and rotation of an object you want to pick), and your current gripper location and rotation. All rotations should be in euler, and will most likely be related to the rotation of the target object
-2) Return the <pose> representing the location and angle the gripper should be in to initiate grasp sequence of object, in this form on its own line: <pose>: [x,y,z,e1,e2,e3]
+[Path Plan Instruction for Robot Arm Gripper]
+Each <action> is one of 5 possible actions that will be executed, and will have arguments (preceded by their type) needed to execute each action in parentheses after that action:
+ - <approach_target> (string: target_object)
+	- this <action> represents moving the gripper hand to a position directly above target_object, such that it can effectively execute <grasp_target> without colliding with the environment. target_object should be the name or id of the object that the gripper is approaching.
+ - <grasp_target> (string: target_object)
+	- this <action> represents moving the gripper hand to a position where the object is directly between the gripper fingers. Because it is much closer to the target_object, it is only safe to execute this action if the gripper is directly above the target object.
+ - <go_to> (float: x, float: y, float: z)
+	- this <action> represents moving the gripper hand directly to a position either slightly above the table as to release the object, or somewhere in the air above the table. The numbers, x, y, and z represent the coordinates that the gripper hand should go to. These should all be numbers and not variables.
+ - <open_gripper> (int: current_grip)
+	- this <action> opens the gripper hand. If the gripper is currently holding an object, this should only happen once the gripper hand is very slightly above the table, as to not damage the object.
+ - <close_gripper> (int: current_grip)
+	- this <action> closes the gripper hand. If the gripper is currently holding an object, this will do nothing. This <action> should only be initialized once the gripper hand is in a position to grasp the target object, like one obtained by executing <grasp_target>.
+At each query, you will only output one <action> which should be on its own line that starts with <Action> (EX: <Action> <approach_target> ("cubeA")), which will then be executed.
+When planning to a position where both grippers may exist, as in a handoff, agentA will execute their <action> before agentB, then will leave the shared area so agentB can execute their <action>. Identify these shared areas before planning a path to them.
 """
 
-def prompt_llm_and_plan(planner: mplib.Planner, agent_name: str, agent: BaseAgent, env: BaseEnv, base_prompt: str):
+def prompt_llm_and_plan(planner: mplib.Planner, agent_name: str, agent: BaseAgent, env: BaseEnv, base_prompt: str, planner_grip: int, other_planner_grip: int,  agent_action_history: str):
     
+    result = None
     agent_prompt = env.get_agent_prompt(env.unwrapped.get_obs(), agent_name)
 
     response = openai.ChatCompletion.create(
-                        model="gpt-4", 
+                        model="gpt-4.1", 
                         messages=[
                             # {"role": "user", "content": ""},
-                            {"role": "system", "content": base_prompt+agent_prompt},                                    
+                            {"role": "system", "content": base_prompt+agent_prompt+agent_action_history},                                    
                         ],
                         max_tokens=1024,
                         temperature=0.0,
                         )
 
     # eval is an itty bitty security risk for now, but whatever
-    print("prompt: ", base_prompt+agent_prompt)
+    print("prompt: ", base_prompt+agent_prompt+agent_action_history)
     print("agent response", response["choices"][0]["message"]["content"])
-
-    agent_generated_pose = 0
+    
+    
+    agent_generated_action = ""
+    agent_generated_variables = ""
 
     for line in response["choices"][0]["message"]["content"].splitlines():
-        if line[0:7] == "<pose>:":
-            agent_generated_pose = line[7:]
+        if line[0:8] == "<Action>":
+            agent_generated_action = re.search(r"\<(.*?)\>", line[8:]).group(1)
+            agent_generated_variables = re.search(r"\(([^)]+)\)", line[8:]).group(1)
+    print(agent_generated_action)
+    print(agent_generated_variables)
     
+    agent_action_history = agent_action_history + "<" + agent_generated_action + "> (" + agent_generated_variables + ") \n"
+    
+    
+    match agent_generated_action:
+        case "approach_target" | "grasp_target":
+            target = agent_generated_variables.strip("\"")
+            obb = get_actor_obb(getattr(env.unwrapped, target))
+            target_closing = agent.tcp.pose.to_transformation_matrix()[0, :3, 1].cpu().numpy()
+            approaching = np.array([0, 0, -1])
+            grasp_info = compute_grasp_info_by_obb(
+                obb,
+                approaching=approaching,
+                target_closing=target_closing,
+                depth=FINGER_LENGTH,
+            )
+            closing, center = grasp_info["closing"], grasp_info["center"]
+            grasp_pose = agent.build_grasp_pose(approaching, closing, getattr(env.unwrapped, target).pose.sp.p)
+            reach_pose = grasp_pose * sapien.Pose([0, 0, -0.05])
+            
+            if agent_generated_action == "approach_target":
+                pose = to_sapien_pose(reach_pose)
+            else:
+                pose = to_sapien_pose(grasp_pose)
+                            
+            result = plan(planner, agent, env, pose)            
+        case "go_to":
+            coord_strings = agent_generated_variables.split(",")
+            coords = []
+            for coord in coord_strings:
+                coord = coord.replace(" ", "")
+                coords.append(float(coord))
+            agent_pose = sapien.Pose(p=np.array(coords, dtype=np.float32), q=np.array(agent.tcp.pose.get_q()[0]))
+            result = plan(planner, agent, env, agent_pose)
+            if result["status"] != "Success":
+                result.pop("status")
+                result_feedback = "\n[Environment Feedback]\n" 
+                for k, v in result.items():
+                    result_feedback = result_feedback + k + ": " + str(v) + "\n"
+                
+                result, planner_grip, agent_action_history = prompt_llm_and_plan(plannerA, "agentA", env.unwrapped.agentA, env.unwrapped, PATH_PLAN_INSTRUCTION + result_feedback, plannerA_grip, plannerB_grip, agentA_action_history)
+
+        case "open_gripper":
+            _, _, _, _, _, planner_grip = open_gripper(agent, planner, env, agent._agent_idx, other_planner_grip, OPEN, CLOSED)
+        case "close_gripper":
+            _, _, _, _, _, planner_grip = close_gripper(agent, planner, env, agent._agent_idx, other_planner_grip, OPEN, CLOSED)
+
+        
+    print("plan", result)
+    
+    '''
+    print("agent generated pose", agent_generated_pose)
+    print("agent generated pose type", type(agent_generated_pose))
     agent_pose = eval(agent_generated_pose)
     if isinstance(agent_pose, list) and len(agent_pose) == 6:
         agent_pose = sapien.Pose(p=np.array(agent_pose[3:], dtype=np.float32), q=np.array(euler_to_quat(agent_pose[0:3]), dtype=np.float32))
     else:
         raise Exception("Agent did not generate pose of length 6")
     
-    result = plan(planner, agent, agent_pose)
+    result = plan(planner, agent, env, agent_pose)
 
     if result["status"] != "Success":
         result.pop("status")
-        result_feedback = "\n[Environment Feedback]" 
+        result_feedback = "\n[Environment Feedback]\n" 
         for k, v in result.items():
             result_feedback = result_feedback + k + ": " + str(v) + "\n"
+        
+        print("result feedback: ", result_feedback)
         
         response = openai.ChatCompletion.create(
                         model="gpt-4", 
@@ -230,6 +263,7 @@ def prompt_llm_and_plan(planner: mplib.Planner, agent_name: str, agent: BaseAgen
         
         agent_generated_pose = 0
 
+        print("corrected response:", response["choices"][0]["message"]["content"])
         for line in response["choices"][0]["message"]["content"].splitlines():
             if line[0:7] == "<pose>:":
                 agent_generated_pose = line[7:]
@@ -240,20 +274,52 @@ def prompt_llm_and_plan(planner: mplib.Planner, agent_name: str, agent: BaseAgen
         else:
             raise Exception("Agent did not generate pose of length 6")
         
-        result = plan(planner, agent, agent_pose)
+        result = plan(planner, agent, env, agent_pose)
         
     
     if result["status"] != "Success":
         raise Exception("Agent failed to generate successful pose")
+    '''
+    return result, planner_grip, agent_action_history
     
-    return result
+agentA_action_history = "\n Previous Actions: \n"
+agentB_action_history = "\n Previous Actions: \n"
 
+for i in range(10):
+
+    resultA, plannerA_grip, agentA_action_history = prompt_llm_and_plan(plannerA, "agentA", env.unwrapped.agentA, env.unwrapped, PATH_PLAN_INSTRUCTION, plannerA_grip, plannerB_grip, agentA_action_history)
+    resultB, plannerB_grip, agentB_action_history = prompt_llm_and_plan(plannerB, "agentB", env.unwrapped.agentB, env.unwrapped, PATH_PLAN_INSTRUCTION, plannerB_grip, plannerA_grip, agentB_action_history)
+    
+    
+    if resultA and resultB:
+        follow_path_2_robot(env.unwrapped, resultB, resultA, plannerB_grip, plannerA_grip)
+    elif (resultA and not resultB) or (not resultA and resultB):
+        if not resultA:
+            resultA = {"position": np.tile(env.unwrapped.agentA.robot.get_qpos()[:, :7].numpy(), (resultB["position"].shape[0], 1))}
+        elif not resultB:
+            resultB = {"position": np.tile(env.unwrapped.agentB.robot.get_qpos()[:, :7].numpy(), (resultA["position"].shape[0], 1))}
         
-resultA = prompt_llm_and_plan(plannerA, "agentA", env.unwrapped.agentA, env.unwrapped, PATH_PLAN_INSTRUCTION)
-
-do_nothing_resultB = {"position": np.tile(env.unwrapped.agentB.robot.get_qpos()[:, :7].numpy(), (resultA["position"].shape[0], 1))}
+        follow_path_2_robot(env.unwrapped, resultB, resultA, plannerB_grip, plannerA_grip)
 
 
+'''
+#do_nothing_resultB = {"position": np.tile(env.unwrapped.agentB.robot.get_qpos()[:, :7].numpy(), (resultA["position"].shape[0], 1))}
 
-follow_path_2_robot(do_nothing_resultB, resultA, plannerB_grip, plannerA_grip)
-print(env.unwrapped.agentA.tcp.pose.get_p())
+follow_path_2_robot(env.unwrapped, resultB, resultA, plannerB_grip, plannerA_grip)
+
+grasp_resultA = plan(plannerA, env.unwrapped.agentA, env.unwrapped, grasp_poseA)
+grasp_resultB = plan(plannerB, env.unwrapped.agentB, env.unwrapped, grasp_poseB)
+
+follow_path_2_robot(env.unwrapped, grasp_resultB, grasp_resultA, plannerB_grip, plannerA_grip)
+
+_, _, _, _, _, plannerA_grip = close_gripper(env.agent.agents[1], plannerA, env, 1, plannerB_grip, OPEN, CLOSED)
+_, _, _, _, _, plannerB_grip = close_gripper(env.agent.agents[0], plannerB, env, 1, plannerA_grip, OPEN, CLOSED)
+
+for i in range(3):
+
+    resultA = prompt_llm_and_plan(plannerA, "agentA", env.unwrapped.agentA, env.unwrapped, PATH_PLAN_INSTRUCTION)
+    resultB = prompt_llm_and_plan(plannerB, "agentB", env.unwrapped.agentB, env.unwrapped, PATH_PLAN_INSTRUCTION)
+
+
+    follow_path_2_robot(env.unwrapped, resultB, resultA, plannerB_grip, plannerA_grip)
+'''

@@ -180,17 +180,17 @@ class RocobenchTest(BaseEnv):
         agent_prompt = f"""
         `There are 2 cubes and 2 targets on the table. Each cube is close to the other cube's respective target, and each group of target-cube is infront of a robot arm.
         You are robot {agent_name} and on the other side of the table is {other_agent}, who you are collaborating with to move both cubes to their respective targets. The task is NOT done until all two cubes are sorted.
+        Given the environment states below, find the next best action you should execute in the appropriate syntax and explain your reasoning for it.
         Locations of the targets:
         {target_locations}
         At current round: 
         {cube_states}
         {obs_lists_formatted}
-        The euler rotation of both the cubes and your arm gripper follow this pattern: e1, e2, e3, where each angle is the clockwise angle from x, y, and z, respectively. Use this in your explanation.
-        The euler rotation of your gripper will NOT be the same as either the cube's rotation or the current gripper rotation. You should use the general formula of taking the e1 and e2 angles from the current grip rotation and the e3 angle from the target cube. Before deciding on a rotation, explain why you are getting each e1, e2, e3 angle of the rotation.
         Your goal is to place {other_cube} on {closest_target}, but the only cube(s) in distance are/is {graspables}
         {agent_state}
-        Never forget you are {agent_name}! Never forget you can only reach {graspables}!
-        Think step-by-step about the task and others' response. Carefully check and correct them if they made a mistake. 
+        Never forget you are {agent_name}! Never forget you can only reach {graspables}, and cannot reach {other_target}! Only {other_agent} can reach {other_target}!
+        You ({agent_name}) have a total range of .82 from your base_position, which is listed above. 
+        The only place that both you ({agent_name}) and {other_agent} can both reach is near the center of the table. This must be where you hand each other the objects, but, as this is a shared area, do NOT put the object directly in the middle, instead put it in a spot that the other gripper will be able to reach, but won't result in a collision, such as to the side of the target, giving the other gripper space to do so as well.
         Improve your plans if given [Environment Feedback]. Include your explanation for why you are choosing that pose.
         """
         '''
@@ -400,6 +400,8 @@ class RocobenchTest(BaseEnv):
             cubeB_in_goal * cubeA_in_goal
         )
         obs = dict(
+            arm_a_base_position=self.agentA.robot.pose.p,
+            arm_b_base_position=self.agentB.robot.pose.p,
             arm_a_tcp_position=self.agentA.tcp.pose.get_p(),
             arm_b_tcp_position=self.agentB.tcp.pose.get_p(),
             arm_a_tcp_euler=quat_to_euler(np.array(self.agentA.tcp.pose.get_q())[0]),
