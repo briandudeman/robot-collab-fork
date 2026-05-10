@@ -1,0 +1,30 @@
+{
+  "env_info": {
+    "env_id": "RocobenchTest",
+    "env_kwargs": {
+      "obs_mode": "none",
+      "reward_mode": null,
+      "control_mode": "pd_joint_pos",
+      "render_mode": "human",
+      "sensor_configs": {
+        "shader_pack": "default"
+      },
+      "human_render_camera_configs": {
+        "shader_pack": "default"
+      },
+      "viewer_camera_configs": {
+        "shader_pack": "default"
+      },
+      "num_envs": 1,
+      "sim_backend": "auto",
+      "render_backend": "cpu",
+      "enable_shadow": true,
+      "parallel_in_single_scene": false
+    },
+    "max_episode_steps": 100
+  },
+  "commit_info": null,
+  "episodes": [],
+  "source_type": "motionplanning",
+  "source_desc": "official motion planning solution from ManiSkill contributors"
+}

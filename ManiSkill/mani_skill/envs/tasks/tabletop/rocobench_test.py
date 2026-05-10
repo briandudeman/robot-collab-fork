@@ -1,13 +1,14 @@
-from typing import Any, Tuple
+from typing import Any, Tuple, Union
 
 import numpy as np
+import pprint
 import gymnasium as gym
 import sapien
 import torch
 from transforms3d.euler import euler2quat
 
 from mani_skill.agents.multi_agent import MultiAgent
-from mani_skill.agents.robots.panda import PandaWristCam
+from mani_skill.agents.robots.panda import PandaWristCam, Panda
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.envs.utils.randomization.pose import random_quaternions
 from mani_skill.sensors.camera import CameraConfig
@@ -17,6 +18,8 @@ from mani_skill.utils.registration import register_env
 from mani_skill.utils.scene_builder.table_rocobench.scene_builder import RocoTableSceneBuilder
 from mani_skill.utils.structs.pose import Pose
 from mani_skill.utils.structs.types import GPUMemoryConfig, SimConfig
+from dm_control.utils.transformations import mat_to_quat, quat_to_euler, euler_to_quat 
+
 
 
 ACTION_SPACE="""
@@ -60,18 +63,17 @@ class RocobenchTest(BaseEnv):
 
     _sample_video_link = "https://github.com/haosulab/ManiSkill/raw/main/figures/environment_demos/TwoRobotStackCube-v1_rt.mp4"
     SUPPORTED_ROBOTS = [("panda_wristcam", "panda_wristcam")]
-    agent: MultiAgent[Tuple[PandaWristCam, PandaWristCam]]
+    agent: MultiAgent[Tuple[Panda, Panda]]
 
     goal_radius = 0.06
 
     def __init__(
         self,
         *args,
-        robot_uids=("panda_wristcam", "panda_wristcam"),
+        robot_uids=("panda", "panda"),
         robot_init_qpos_noise=0.02,
         **kwargs
     ):
-        print("rocobench test being initialized")
         self.robot_init_qpos_noise = robot_init_qpos_noise
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
@@ -95,21 +97,20 @@ class RocobenchTest(BaseEnv):
     @property
     def _default_human_render_camera_configs(self):
         # pose = sapien_utils.look_at([1.4, 0.8, 0.75], [0.0, 0.1, 0.1]) # this perspective is good for demos
-        pose = sapien_utils.look_at(eye=[0, 1.5, 1.5], target=[0, 0, 0])
+        pose = sapien_utils.look_at(eye=[0, 1.5, 1], target=[0, 0, 0])
         return CameraConfig("render_camera", pose, 512, 512, 1, 0.01, 100)
-
+    
     def get_action_prompt(self) -> str:
         return ACTION_SPACE
 
     # only works for this specific environment frank emika panda robots, super icky but whatever
     def cube_in_range(self, obs, agent:str, cube:str):
         if (agent == "agentA"):
-            print(self.agentA.robot.pose.get_p())
-            if (torch.cdist(obs["extra"][f"{cube}_pose"][0:1, 0:3], self.agentA.robot.pose.get_p()) < .82):
+            if (torch.cdist(obs["extra"][f"{cube}_position"], self.agentA.robot.pose.get_p()) < .82):
                 return True
             return False
         elif (agent == "agentB"):
-            if (torch.cdist(obs["extra"][f"{cube}_pose"][0:1, 0:3], self.agentB.robot.pose.get_p()) < .82):
+            if (torch.cdist(obs["extra"][f"{cube}_position"], self.agentB.robot.pose.get_p()) < .82):
                 return True
             return False
 
@@ -171,19 +172,28 @@ class RocobenchTest(BaseEnv):
             other_target = "targetB"
 
 
+        obs_lists_formatted = "" # the non-boolean values
+        for k, v in obs["extra"].items():
+            if v.dtype == torch.float32 or v.dtype == np.float64:
+                obs_lists_formatted = obs_lists_formatted + k + ": [" + ", ".join([str(x) for x in np.squeeze(v).tolist()]) + "]\n"
+
         agent_prompt = f"""
         `There are 2 cubes and 2 targets on the table. Each cube is close to the other cube's respective target, and each group of target-cube is infront of a robot arm.
         You are robot {agent_name} and on the other side of the table is {other_agent}, who you are collaborating with to move both cubes to their respective targets. The task is NOT done until all two cubes are sorted.
+        Given the environment states below, find the next best action you should execute in the appropriate syntax and explain your reasoning for it.
         Locations of the targets:
         {target_locations}
         At current round: 
         {cube_states}
+        {obs_lists_formatted}
         Your goal is to place {other_cube} on {closest_target}, but the only cube(s) in distance are/is {graspables}
         {agent_state}
-        Never forget you are {agent_name}! Never forget you can only reach {graspables}!
-        Think step-by-step about the task and others' response. Carefully check and correct them if they made a mistake. 
-        Improve your plans if given [Environment Feedback].
+        Never forget you are {agent_name}! Never forget you can only reach {graspables}, and cannot reach {other_target}! Only {other_agent} can reach {other_target}!
+        You ({agent_name}) have a total range of .82 from your base_position, which is listed above. 
+        The only place that both you ({agent_name}) and {other_agent} can both reach is near the center of the table. This must be where you hand each other the objects, but, as this is a shared area, do NOT put the object directly in the middle, instead put it in a spot that the other gripper will be able to reach, but won't result in a collision, such as to the side of the target, giving the other gripper space to do so as well.
+        Improve your plans if given [Environment Feedback]. Include your explanation for why you are choosing that pose.
         """
+        '''
         if include_response_instructions:
             agent_prompt += f"""
         When you respond, tell others about your goal and all constraints. Respond very concisely but informatively, and do not repeat what others have said.
@@ -192,6 +202,7 @@ class RocobenchTest(BaseEnv):
         End your response by either: 1) output PROCEED, if the plans require further discussion, or 2) If everyone has made proposals and got approved, output EXECUTE and the final plan, must strictly follow [Action Output Instruction]!
         In the plan, at least one robot should be acting, you can't all WAIT.
         """
+        '''
         # Example response #1:
         # [Reasons] I am {agent_name}, I must put blue_square on panel2, but I can't reach blue_square for now. Since Chad needs yellow_trapezoid, I propose to help Chad move it closer. What does everyone think?
         # [Proposal] PICK yellow_trapezoid PLACE panel3
@@ -237,6 +248,15 @@ class RocobenchTest(BaseEnv):
             color=[0, 1, 0, 1],
             name="cubeB",
             initial_pose=sapien.Pose(p=[1, 0, 0.02]),
+        )
+        self.middle_goal = actors.build_red_white_target(
+            self.scene,
+            radius=self.goal_radius,
+            thickness=1e-5,
+            name="middle_goal",
+            add_collision=False,
+            body_type="kinematic",
+            initial_pose=sapien.Pose()
         )
         self.goal_region = [actors.build_red_white_target(
             self.scene,
@@ -293,7 +313,7 @@ class RocobenchTest(BaseEnv):
             self.cubeB.set_pose(Pose.create_from_pq(p=cubeB_xyz, q=qs))
             
             target_region_a_xyz = torch.zeros((b, 3))
-            target_region_a_xyz[:, 0] = torch.rand((b,)) * 0.1 + 0.15
+            target_region_a_xyz[:, 0] = torch.rand((b,)) * 0.1 + 0.075
             target_region_a_xyz[:, 1] = .5
             target_region_a_xyz[..., 2] = 1e-3
             self.goal_region[0].set_pose(
@@ -302,9 +322,16 @@ class RocobenchTest(BaseEnv):
                     q=euler2quat(0, np.pi / 2, 0),
                 )
             )
+            middle_region_xyz = torch.zeros((b, 3))
+            self.middle_goal.set_pose(
+                Pose.create_from_pq(
+                    p=middle_region_xyz,
+                    q=euler2quat(0, np.pi / 2, 0)
+                )
+            )
 
             target_region_b_xyz = torch.zeros((b, 3))
-            target_region_b_xyz[:, 0] = torch.rand((b,)) * 0.1 - 0.15
+            target_region_b_xyz[:, 0] = torch.rand((b,)) * 0.1 - 0.075
             target_region_b_xyz[:, 1] = -0.5
             target_region_b_xyz[..., 2] = 1e-3
             self.goal_region[1].set_pose(
@@ -372,18 +399,23 @@ class RocobenchTest(BaseEnv):
         success = (
             cubeB_in_goal * cubeA_in_goal
         )
-        
         obs = dict(
-            arm_b_tcp=self.agentB.tcp.pose.raw_pose,
-            arm_a_tcp=self.agentA.tcp.pose.raw_pose,
+            arm_a_base_position=self.agentA.robot.pose.p,
+            arm_b_base_position=self.agentB.robot.pose.p,
+            arm_a_tcp_position=self.agentA.tcp.pose.get_p(),
+            arm_b_tcp_position=self.agentB.tcp.pose.get_p(),
+            arm_a_tcp_euler=quat_to_euler(np.array(self.agentA.tcp.pose.get_q())[0]),
+            arm_b_tcp_euler=quat_to_euler(np.array(self.agentB.tcp.pose.get_q())[0]),
         )
 
         if "state" in self.obs_mode:
             obs.update(
                 cubeA_goal_region_pos=self.goal_region[0].pose.p,
                 cubeB_goal_region_pos=self.goal_region[1].pose.p,
-                cubeA_pose=self.cubeA.pose.raw_pose,
-                cubeB_pose=self.cubeB.pose.raw_pose,
+                cubeA_position=self.cubeA.pose.get_p(),
+                cubeB_position=self.cubeB.pose.get_p(),
+                cubeA_euler=quat_to_euler(np.array(self.cubeA.pose.get_q())[0]),
+                cubeB_euler=quat_to_euler(np.array(self.cubeB.pose.get_q())[0]),
                 is_agentB_grasping_cubeA=is_agentB_grasping_cubeA,
                 is_agentA_grasping_cubeB=is_agentA_grasping_cubeB,
                 is_agentB_grasping_cubeB=is_agentB_grasping_cubeB,

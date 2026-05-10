@@ -52,17 +52,6 @@
         "seed": 2
       },
       "success": true
-    },
-    {
-      "episode_id": 3,
-      "episode_seed": 3,
-      "control_mode": "pd_joint_pos",
-      "elapsed_steps": 86,
-      "reset_kwargs": {
-        "options": null,
-        "seed": 3
-      },
-      "success": true
     }
   ],
   "source_type": "motionplanning",

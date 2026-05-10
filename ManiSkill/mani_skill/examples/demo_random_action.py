@@ -126,7 +126,6 @@ def main(args: Args):
             if (terminated | truncated).any():
                 break
     env.close()
-
     if record_dir:
         print(f"Saving video to {record_dir}")
 

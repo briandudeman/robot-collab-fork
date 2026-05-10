@@ -389,7 +389,6 @@ class BaseEnv(gym.Env):
     def _default_sim_config(self):
         return SimConfig()
     def _load_agent(self, options: dict, initial_agent_poses: Optional[Union[sapien.Pose, Pose]] = None, build_separate: bool = False):
-        print("agents getting loaded with baseenv")
         
         """
         loads the agent/controllable articulations into the environment. The default function provides a convenient way to setup the agent/robot by a robot_uid
@@ -515,6 +514,7 @@ class BaseEnv(gym.Env):
                 If this is None (the default), this function will call `self.get_info()` itself
             unflattened (bool): Whether to return the observation without flattening even if the observation mode (`self.obs_mode`) asserts to return a flattened observation.
         """
+        
         if info is None:
             info = self.get_info()
         if self._obs_mode == "none":
@@ -853,7 +853,6 @@ class BaseEnv(gym.Env):
     # Reset
     # -------------------------------------------------------------------------- #
     def reset(self, seed: Union[None, int, list[int]] = None, options: Union[None, dict] = None):
-        print("base env reseting")
         """Reset the ManiSkill environment with given seed(s) and options. Typically seed is either None (for unseeded reset) or an int (seeded reset).
         For GPU parallelized environments you can also pass a list of seeds for each parallel environment to seed each one separately.
 
@@ -893,7 +892,6 @@ class BaseEnv(gym.Env):
         if options is None:
             options = dict()
         reconfigure = options.get("reconfigure", False)
-        print("reconfigure: ", reconfigure)
         reconfigure = reconfigure or (
             self._reconfig_counter == 0 and self.reconfiguration_freq != 0
         )
@@ -969,7 +967,6 @@ class BaseEnv(gym.Env):
 
         info = self.get_info()
         if reset_to_env_states_obs is None:
-            print("info: ", info)
             obs = self.get_obs(info)
         else:
             obs = self._last_obs
@@ -1122,6 +1119,7 @@ class BaseEnv(gym.Env):
                         self.scene.px.gpu_apply_articulation_target_velocity()
         self._before_control_step()
         for _ in range(self._sim_steps_per_control):
+            print(_)
             if self.agent is not None:
                 self.agent.before_simulation_step()
             self._before_simulation_step()

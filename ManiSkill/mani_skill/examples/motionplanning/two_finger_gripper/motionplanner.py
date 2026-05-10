@@ -22,8 +22,9 @@ class TwoFingerGripperMotionPlanningSolver(BaseMotionPlanningSolver):
         print_env_info: bool = True,
         joint_vel_limits=0.9,
         joint_acc_limits=0.9,
+        agent_id=0
     ):
-        super().__init__(env, debug, vis, base_pose, print_env_info, joint_vel_limits, joint_acc_limits)
+        super().__init__(env, debug, vis, base_pose, print_env_info, joint_vel_limits, joint_acc_limits, agent_id)
         self.gripper_state = self.OPEN
         self.visualize_target_grasp_pose = visualize_target_grasp_pose
         self.grasp_pose_visual = None
