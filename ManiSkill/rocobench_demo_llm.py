@@ -231,55 +231,6 @@ def prompt_llm_and_plan(planner: mplib.Planner, agent_name: str, agent: BaseAgen
 
         
     print("plan", result)
-    
-    '''
-    print("agent generated pose", agent_generated_pose)
-    print("agent generated pose type", type(agent_generated_pose))
-    agent_pose = eval(agent_generated_pose)
-    if isinstance(agent_pose, list) and len(agent_pose) == 6:
-        agent_pose = sapien.Pose(p=np.array(agent_pose[3:], dtype=np.float32), q=np.array(euler_to_quat(agent_pose[0:3]), dtype=np.float32))
-    else:
-        raise Exception("Agent did not generate pose of length 6")
-    
-    result = plan(planner, agent, env, agent_pose)
-
-    if result["status"] != "Success":
-        result.pop("status")
-        result_feedback = "\n[Environment Feedback]\n" 
-        for k, v in result.items():
-            result_feedback = result_feedback + k + ": " + str(v) + "\n"
-        
-        print("result feedback: ", result_feedback)
-        
-        response = openai.ChatCompletion.create(
-                        model="gpt-4", 
-                        messages=[
-                            # {"role": "user", "content": ""},
-                            {"role": "system", "content": base_prompt+agent_prompt+result_feedback},                                    
-                        ],
-                        max_tokens=1024,
-                        temperature=0.0,
-                        )
-        
-        agent_generated_pose = 0
-
-        print("corrected response:", response["choices"][0]["message"]["content"])
-        for line in response["choices"][0]["message"]["content"].splitlines():
-            if line[0:7] == "<pose>:":
-                agent_generated_pose = line[7:]
-        
-        agent_pose = eval(agent_generated_pose)
-        if isinstance(agent_pose, list) and len(agent_pose) == 6:
-            agent_pose = sapien.Pose(p=np.array(agent_pose[0:3], dtype=np.float32), q=np.array(euler_to_quat(agent_pose[3:]), dtype=np.float32))
-        else:
-            raise Exception("Agent did not generate pose of length 6")
-        
-        result = plan(planner, agent, env, agent_pose)
-        
-    
-    if result["status"] != "Success":
-        raise Exception("Agent failed to generate successful pose")
-    '''
     return result, planner_grip, agent_action_history
     
 agentA_action_history = "\n Previous Actions: \n"
